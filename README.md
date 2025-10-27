@@ -1,4 +1,7 @@
 # STIX2EDL
+![Version](https://img.shields.io/badge/version-1.0-blue)
+![License](https://img.shields.io/badge/license-MIT-green)
+![Python](https://img.shields.io/badge/python-3.7+-blue)
 
 **Version 1.0**
 
@@ -6,9 +9,8 @@ Convert TAXII threat intelligence feeds into firewall-consumable External Dynami
 
 ## Important Notices
 
-**THIS IS A PROOF OF CONCEPT TOOL**
-
-This tool was developed as a proof of concept and is NOT intended for production use. See Security Considerations section below for important details.
+This tool was developed as a proof of concept. 
+See Security Considerations section below for important details.
 
 ### Testing Environment
 - Tested on: macOS 15.7.1
@@ -17,11 +19,10 @@ This tool was developed as a proof of concept and is NOT intended for production
 
 ## Overview
 
-STIX2EDL connects to TAXII 2.1 servers, fetches threat intelligence indicators, and serves them in EDL format for consumption by firewalls and security appliances. It supports multiple collections, persistent storage, and provides a clean web interface for management.
+STIX2EDL connects to TAXII 2.x servers, fetches threat intelligence indicators, and serves them in EDL format for consumption by firewalls and security appliances. It supports multiple collections, persistent storage, and provides a clean web interface for management.
 
 ## Features
 
-- **TAXII 2.1 Support** - Connects to any TAXII 2.1 compliant server
 - **Multiple Collections** - Manage multiple threat feeds simultaneously
 - **EDL Export** - Generates firewall-ready External Dynamic Lists
 - **Web Interface** - Modern, responsive dashboard for management
@@ -54,7 +55,6 @@ chmod +x setup.sh
 This will:
 - Install Python dependencies
 - Create configuration template
-- Set up the templates directory
 
 3. Configure your TAXII collections:
 ```bash
@@ -216,8 +216,8 @@ http://phishing.example.com/login
 
 ### Data Flow
 
-1. Application starts †’ Loads from database (if exists)
-2. If no data †’ Fetches from TAXII servers
+1. Application starts â€ â€™ Loads from database (if exists)
+2. If no data â€ â€™ Fetches from TAXII servers
 3. Indicators stored in SQLite with deduplication
 4. Web UI and API serve indicators in various formats
 
@@ -240,14 +240,14 @@ http://phishing.example.com/login
 
 ```
 stix2edl/
-””€”€ taxii_threat_intel.py    # Main application
-””€”€ config.yaml               # Configuration
-””€”€ requirements.txt          # Python dependencies
-””€”€ templates/
-”‚   ””€”€ index.html           # Dashboard
-”‚   ”””€”€ initializing.html    # First-run page
-””€”€ indicators.db            # SQLite database (created on first run)
-”””€”€ README.md
+â€â€â‚¬â€â‚¬ taxii_threat_intel.py    # Main application
+â€â€â‚¬â€â‚¬ config.yaml               # Configuration
+â€â€â‚¬â€â‚¬ requirements.txt          # Python dependencies
+â€â€â‚¬â€â‚¬ templates/
+â€â€š   â€â€â‚¬â€â‚¬ index.html           # Dashboard
+â€â€š   â€â€â€â‚¬â€â‚¬ initializing.html    # First-run page
+â€â€â‚¬â€â‚¬ indicators.db            # SQLite database (created on first run)
+â€â€â€â‚¬â€â‚¬ README.md
 ```
 
 ### Running Tests
@@ -360,11 +360,10 @@ MIT License - see LICENSE file for details
 
 ## Credits
 
-Built with:
+Vibed with:
 - Flask - Web framework
 - taxii2-client - TAXII 2.1 client library
 - SQLite - Database
 
 ---
 
-**STIX2EDL v1.0** - Converting threat intelligence to actionable security
