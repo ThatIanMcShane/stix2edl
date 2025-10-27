@@ -49,7 +49,7 @@ indicators_cache = {
 # Auto-refresh state
 auto_refresh_state = {
     'enabled': False,
-    'interval_hours': 6,
+    'interval_minutes': 360,  # Default: 360 minutes (6 hours)
     'next_refresh': None,
     'last_refresh': None,
     'thread': None,
@@ -1106,20 +1106,20 @@ def perform_auto_refresh():
 
 def schedule_next_refresh():
     """Calculate and set next refresh time"""
-    interval_hours = auto_refresh_state['interval_hours']
-    next_time = datetime.now() + timedelta(hours=interval_hours)
+    interval_minutes = auto_refresh_state['interval_minutes']
+    next_time = datetime.now() + timedelta(minutes=interval_minutes)
     auto_refresh_state['next_refresh'] = next_time.isoformat()
-    logger.info(f"Next auto-refresh scheduled for {next_time.strftime('%Y-%m-%d %H:%M:%S')}")
+    logger.info(f"Next auto-refresh scheduled for {next_time.strftime('%Y-%m-%d %H:%M:%S')} ({interval_minutes} minutes)")
 
 
-def start_auto_refresh(interval_hours=6):
+def start_auto_refresh(interval_minutes=360):
     """Start the auto-refresh scheduler"""
     if auto_refresh_state['thread'] and auto_refresh_state['thread'].is_alive():
         logger.warning("Auto-refresh already running")
         return
     
     auto_refresh_state['enabled'] = True
-    auto_refresh_state['interval_hours'] = interval_hours
+    auto_refresh_state['interval_minutes'] = interval_minutes
     auto_refresh_state['stop_event'].clear()
     
     # Schedule first refresh
@@ -1130,7 +1130,7 @@ def start_auto_refresh(interval_hours=6):
     thread.start()
     auto_refresh_state['thread'] = thread
     
-    logger.info(f"Auto-refresh started with {interval_hours} hour interval")
+    logger.info(f"Auto-refresh started with {interval_minutes} minute interval")
 
 
 def stop_auto_refresh():
@@ -1152,6 +1152,12 @@ def index():
     if init_state['status'] == 'initializing':
         return render_template('initializing.html')
     return render_template('index.html')
+
+
+@app.route('/debug')
+def debug():
+    """Serve debug page"""
+    return render_template('debug.html')
 
 
 @app.route('/api/init-status')
@@ -1309,9 +1315,13 @@ def get_stats():
 @app.route('/api/auto-refresh/status')
 def auto_refresh_status():
     """Get auto-refresh status"""
+    interval_minutes = auto_refresh_state.get('interval_minutes', 360)
+    interval_hours = interval_minutes / 60  # Convert to hours for compatibility
+    
     return jsonify({
         'enabled': auto_refresh_state['enabled'],
-        'interval_hours': auto_refresh_state['interval_hours'],
+        'interval_hours': interval_hours,
+        'interval_minutes': interval_minutes,
         'next_refresh': auto_refresh_state['next_refresh'],
         'last_refresh': auto_refresh_state['last_refresh']
     })
@@ -1319,21 +1329,67 @@ def auto_refresh_status():
 
 @app.route('/api/auto-refresh/start', methods=['POST'])
 def api_start_auto_refresh():
-    """Start auto-refresh"""
-    data = request.get_json() or {}
-    interval_hours = data.get('interval_hours', 6)
-    
+    """Start auto-refresh with input validation"""
     try:
-        start_auto_refresh(interval_hours)
+        data = request.get_json() or {}
+        interval_hours = data.get('interval_hours')
+        
+        # Validation: Ensure interval_hours is provided
+        if interval_hours is None:
+            return jsonify({
+                'status': 'error',
+                'message': 'interval_hours is required'
+            }), 400
+        
+        # Validation: Must be a number
+        try:
+            interval_hours = float(interval_hours)
+        except (ValueError, TypeError):
+            return jsonify({
+                'status': 'error',
+                'message': 'interval_hours must be a valid number'
+            }), 400
+        
+        # Validation: Must be positive
+        if interval_hours <= 0:
+            return jsonify({
+                'status': 'error',
+                'message': 'interval_hours must be greater than 0'
+            }), 400
+        
+        # Validation: Minimum 0.25 hours (15 minutes)
+        if interval_hours < 0.25:
+            return jsonify({
+                'status': 'error',
+                'message': 'Minimum interval is 15 minutes (0.25 hours)'
+            }), 400
+        
+        # Validation: Maximum 24 hours
+        if interval_hours > 24:
+            return jsonify({
+                'status': 'error',
+                'message': 'Maximum interval is 24 hours'
+            }), 400
+        
+        # Convert hours to minutes for start_auto_refresh
+        interval_minutes = int(interval_hours * 60)
+        
+        # All validations passed, start auto-refresh
+        start_auto_refresh(interval_minutes)
+        
         return jsonify({
             'status': 'success',
-            'message': f'Auto-refresh started with {interval_hours} hour interval',
+            'message': f'Auto-refresh started with {interval_minutes} minute interval',
+            'interval_hours': interval_hours,
+            'interval_minutes': interval_minutes,
             'next_refresh': auto_refresh_state['next_refresh']
         })
+        
     except Exception as e:
+        logger.error(f"Error starting auto-refresh: {e}")
         return jsonify({
             'status': 'error',
-            'message': str(e)
+            'message': 'Internal server error'
         }), 500
 
 

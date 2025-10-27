@@ -513,13 +513,21 @@
                 </div>
                 <div class="auto-refresh-controls">
                     <button id="autoRefreshToggle" class="btn btn-small" onclick="toggleAutoRefresh()">Enable Auto-Refresh</button>
-                    <select id="autoRefreshInterval" class="interval-select">
-                        <option value="1">Every 1 hour</option>
-                        <option value="3">Every 3 hours</option>
-                        <option value="6" selected>Every 6 hours</option>
-                        <option value="12">Every 12 hours</option>
-                        <option value="24">Every 24 hours</option>
-                    </select>
+                    <div style="display: inline-flex; align-items: center; gap: 8px;">
+                        <span style="color: #a0aec0;">Every</span>
+                        <input 
+                            type="text" 
+                            id="autoRefreshInterval" 
+                            class="interval-input" 
+                            value="360"
+                            maxlength="4"
+                            pattern="[0-9]*"
+                            placeholder="360"
+                            style="width: 60px; padding: 6px 10px; border: 1px solid #4a5568; background: #2d3748; color: #fff; border-radius: 4px; text-align: center;"
+                        />
+                        <span style="color: #a0aec0;">minutes</span>
+                        <span id="intervalError" style="color: #f56565; font-size: 0.9em; display: none; margin-left: 8px;"></span>
+                    </div>
                 </div>
             </div>
             
@@ -582,13 +590,45 @@
     <script>
         // Load status and collections on page load
         document.addEventListener('DOMContentLoaded', function() {
+            // Initial load
             loadStatus();
             loadCollections();
             loadStats();
             loadAutoRefreshStatus();
             
-            // Update auto-refresh status every 30 seconds
-            setInterval(loadAutoRefreshStatus, 30000);
+            // Periodic updates
+            setInterval(loadStatus, 30000);           // Update status every 30 seconds
+            setInterval(loadCollections, 60000);      // Update collections every 60 seconds
+            setInterval(loadStats, 60000);            // Update stats every 60 seconds
+            setInterval(loadAutoRefreshStatus, 30000); // Update auto-refresh status every 30 seconds
+            
+            // Add input validation for auto-refresh interval
+            const intervalInput = document.getElementById('autoRefreshInterval');
+            if (intervalInput) {
+                // Only allow digits
+                intervalInput.addEventListener('input', function(e) {
+                    // Remove any non-digit characters
+                    this.value = this.value.replace(/[^0-9]/g, '');
+                    
+                    // Limit to 4 digits
+                    if (this.value.length > 4) {
+                        this.value = this.value.slice(0, 4);
+                    }
+                });
+                
+                // Validate on blur
+                intervalInput.addEventListener('blur', function(e) {
+                    const validation = validateInterval(this.value);
+                    if (!validation.valid && this.value !== '') {
+                        showIntervalError(validation.error);
+                    }
+                });
+                
+                // Clear error on focus
+                intervalInput.addEventListener('focus', function(e) {
+                    document.getElementById('intervalError').style.display = 'none';
+                });
+            }
         });
         
         function loadStats() {
@@ -623,6 +663,17 @@
                 .then(data => {
                     // Update indicators count
                     document.getElementById('totalIndicators').textContent = data.indicator_count || 0;
+                    
+                    // Check if data changed (for triggering other updates)
+                    const prevLastUpdated = window.lastUpdatedTimestamp;
+                    window.lastUpdatedTimestamp = data.last_updated;
+                    
+                    // If data changed, refresh collections and stats too
+                    if (prevLastUpdated && prevLastUpdated !== data.last_updated) {
+                        console.log('Data updated, refreshing collections and stats');
+                        loadCollections();
+                        loadStats();
+                    }
                     
                     // Update health status
                     const healthIndicator = document.getElementById('healthIndicator');
@@ -994,15 +1045,19 @@
                 .then(data => {
                     const statusEl = document.getElementById('autoRefreshStatus');
                     const toggleBtn = document.getElementById('autoRefreshToggle');
-                    const intervalSelect = document.getElementById('autoRefreshInterval');
+                    const intervalInput = document.getElementById('autoRefreshInterval');
                     const nextTimeEl = document.getElementById('nextRefreshTime');
                     
                     if (data.enabled) {
                         statusEl.textContent = 'Enabled';
                         statusEl.className = 'auto-refresh-value enabled';
                         toggleBtn.textContent = 'Disable Auto-Refresh';
-                        intervalSelect.disabled = true;
-                        intervalSelect.value = data.interval_hours;
+                        intervalInput.disabled = true;
+                        intervalInput.style.opacity = '0.6';
+                        
+                        // Convert hours to minutes for display
+                        const minutes = Math.round(data.interval_hours * 60);
+                        intervalInput.value = minutes;
                         
                         // Show next refresh time
                         if (data.next_refresh) {
@@ -1014,13 +1069,53 @@
                         statusEl.textContent = 'Disabled';
                         statusEl.className = 'auto-refresh-value disabled';
                         toggleBtn.textContent = 'Enable Auto-Refresh';
-                        intervalSelect.disabled = false;
+                        intervalInput.disabled = false;
+                        intervalInput.style.opacity = '1';
                         nextTimeEl.textContent = '';
                     }
                 })
                 .catch(error => {
                     console.error('Error loading auto-refresh status:', error);
                 });
+        }
+        
+        function validateInterval(minutes) {
+            // Security: Strict validation to prevent injection
+            // Only allow positive integers
+            const num = parseInt(minutes, 10);
+            
+            // Check if it's a valid number
+            if (isNaN(num) || num !== parseFloat(minutes)) {
+                return { valid: false, error: 'Please enter a valid number' };
+            }
+            
+            // Check if it's positive
+            if (num <= 0) {
+                return { valid: false, error: 'Interval must be greater than 0' };
+            }
+            
+            // Minimum: 15 minutes (prevent server overload)
+            if (num < 15) {
+                return { valid: false, error: 'Minimum interval is 15 minutes' };
+            }
+            
+            // Maximum: 1440 minutes (24 hours)
+            if (num > 1440) {
+                return { valid: false, error: 'Maximum interval is 1440 minutes (24 hours)' };
+            }
+            
+            return { valid: true, minutes: num };
+        }
+        
+        function showIntervalError(message) {
+            const errorEl = document.getElementById('intervalError');
+            errorEl.textContent = message;
+            errorEl.style.display = 'inline';
+            
+            // Clear after 5 seconds
+            setTimeout(() => {
+                errorEl.style.display = 'none';
+            }, 5000);
         }
         
         function toggleAutoRefresh() {
@@ -1038,17 +1133,28 @@
                                 }
                             });
                     } else {
-                        // Enable
-                        const interval = parseInt(document.getElementById('autoRefreshInterval').value);
+                        // Enable - validate input first
+                        const inputValue = document.getElementById('autoRefreshInterval').value.trim();
+                        const validation = validateInterval(inputValue);
+                        
+                        if (!validation.valid) {
+                            showIntervalError(validation.error);
+                            showAlert(validation.error, 'error');
+                            return;
+                        }
+                        
+                        const minutes = validation.minutes;
+                        const hours = minutes / 60; // Convert to hours for API
+                        
                         fetch('/api/auto-refresh/start', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ interval_hours: interval })
+                            body: JSON.stringify({ interval_hours: hours })
                         })
                             .then(response => response.json())
                             .then(result => {
                                 if (result.status === 'success') {
-                                    showAlert(`Auto-refresh enabled (every ${interval} hours)`, 'success');
+                                    showAlert(`Auto-refresh enabled (every ${minutes} minutes)`, 'success');
                                     loadAutoRefreshStatus();
                                 }
                             });
