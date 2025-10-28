@@ -807,8 +807,11 @@
                     <button class="btn btn-primary btn-small" onclick="refreshCollection(${collection.index})" ${!collection.enabled ? 'disabled' : ''}>
                         Refresh
                     </button>
-                    <a href="/api/collection/${collection.index}/csv" class="btn btn-small">
+                    <a href="/api/collection/${collection.index}/csv" class="btn btn-small" title="Active indicators only">
                         CSV
+                    </a>
+                    <a href="/api/collection/${collection.index}/full-csv" class="btn btn-small" title="All indicators (active + revoked)">
+                        Full Export
                     </a>
                     <a href="/api/edl/collection/${collection.index}" class="btn btn-small" target="_blank">
                         EDL
@@ -1130,7 +1133,13 @@
                                 if (result.status === 'success') {
                                     showAlert('Auto-refresh disabled', 'success');
                                     loadAutoRefreshStatus();
+                                } else {
+                                    showAlert(result.message || 'Failed to disable auto-refresh', 'error');
                                 }
+                            })
+                            .catch(error => {
+                                console.error('Error disabling auto-refresh:', error);
+                                showAlert('Error disabling auto-refresh', 'error');
                             });
                     } else {
                         // Enable - validate input first
@@ -1156,7 +1165,13 @@
                                 if (result.status === 'success') {
                                     showAlert(`Auto-refresh enabled (every ${minutes} minutes)`, 'success');
                                     loadAutoRefreshStatus();
+                                } else {
+                                    showAlert(result.message || 'Failed to enable auto-refresh', 'error');
                                 }
+                            })
+                            .catch(error => {
+                                console.error('Error enabling auto-refresh:', error);
+                                showAlert('Error enabling auto-refresh', 'error');
                             });
                     }
                 })

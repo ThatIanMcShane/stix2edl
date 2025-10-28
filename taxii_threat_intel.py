@@ -861,6 +861,7 @@ class TaxiiCollector:
         if not pattern:
             return None, None
         
+        original_pattern = pattern  # Keep for logging
         pattern = pattern.strip("[]")
         
         # IPv4/IPv6
@@ -879,25 +880,42 @@ class TaxiiCollector:
             return value, 'url'
         
         # File hash
-        elif "file:hashes" in pattern:
+        elif "file:hashes" in pattern or "file.hashes" in pattern:
             value = self._extract_value(pattern)
-            if "MD5" in pattern:
+            
+            # Check for hash type (case-insensitive)
+            pattern_upper = pattern.upper()
+            if "MD5" in pattern_upper or "'MD5'" in pattern_upper:
                 return value, 'file-hash-MD5'
-            elif "SHA-1" in pattern:
+            elif "SHA-1" in pattern_upper or "'SHA-1'" in pattern_upper or "SHA1" in pattern_upper:
                 return value, 'file-hash-SHA-1'
-            elif "SHA-256" in pattern:
+            elif "SHA-256" in pattern_upper or "'SHA-256'" in pattern_upper or "SHA256" in pattern_upper:
                 return value, 'file-hash-SHA-256'
-            elif "SHA-512" in pattern:
+            elif "SHA-512" in pattern_upper or "'SHA-512'" in pattern_upper or "SHA512" in pattern_upper:
                 return value, 'file-hash-SHA-512'
             else:
+                # Generic file hash if type not specified
                 return value, 'file-hash'
+        
+        # Log unparsed patterns to help debug
+        if original_pattern and not any(x in original_pattern.lower() for x in ['ipv4', 'ipv6', 'domain', 'url', 'file']):
+            logger.debug(f"Unparsed pattern: {original_pattern}")
         
         return None, None
     
     def _extract_value(self, pattern: str) -> str:
         """Extract the actual value from a STIX pattern"""
-        # Look for value between quotes
         import re
+        
+        # For file:hashes patterns like [file:hashes.'SHA-256' = 'hash_value']
+        # We need the value AFTER the = sign, not the hash type
+        if 'file:hashes' in pattern or 'file.hashes' in pattern:
+            # Look for value after the = sign
+            match = re.search(r"=\s*['\"]([^'\"]+)['\"]", pattern)
+            if match:
+                return match.group(1)
+        
+        # For other patterns, get the first quoted value
         match = re.search(r"'([^']+)'", pattern)
         if match:
             return match.group(1)
@@ -1533,6 +1551,110 @@ def get_collection_csv(collection_index):
         )
     except Exception as e:
         logger.error(f"Error getting collection CSV: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/collection/<int:collection_index>/full-csv')
+def get_collection_full_csv(collection_index):
+    """Download ALL indicators (active + revoked) for a specific collection as CSV"""
+    try:
+        collector = TaxiiCollector()
+        collections_config = collector.config.get('collections', [])
+        
+        if collection_index >= len(collections_config):
+            return jsonify({'error': 'Collection not found'}), 404
+        
+        collection_name = collections_config[collection_index].get('name', f'Collection {collection_index+1}')
+        
+        # Get active indicators from cache
+        active_indicators = indicators_cache.get('collection_indicators', {}).get(collection_index, [])
+        
+        # Get revoked indicators from database
+        conn = sqlite3.connect(DB_FILE)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            SELECT type, value, description, confidence, collection_index,
+                   first_seen, revoked_date
+            FROM revoked_indicators
+            WHERE collection_index = ?
+            ORDER BY type, value
+        ''', (collection_index,))
+        
+        revoked_rows = cursor.fetchall()
+        conn.close()
+        
+        # Convert revoked to dict format
+        revoked_indicators = []
+        for row in revoked_rows:
+            revoked_indicators.append({
+                'status': 'REVOKED',
+                'type': row['type'],
+                'value': row['value'],
+                'indicator_types': '',  # Not stored in revoked table
+                'name': '',  # Not stored in revoked table
+                'description': row['description'] or '',
+                'created': '',  # Not stored in revoked table
+                'modified': '',  # Not stored in revoked table
+                'confidence': row['confidence'] or '',
+                'labels': '',  # Not stored in revoked table
+                'first_seen': row['first_seen'] or '',
+                'last_seen': '',  # Not in revoked table
+                'revoked_date': row['revoked_date'] or ''
+            })
+        
+        # Add status and revoked_date to active indicators
+        active_with_status = []
+        for ind in active_indicators:
+            ind_copy = ind.copy()
+            ind_copy['status'] = 'ACTIVE'
+            ind_copy['revoked_date'] = ''  # Empty for active indicators
+            active_with_status.append(ind_copy)
+        
+        # Combine active and revoked
+        all_indicators = active_with_status + revoked_indicators
+        
+        # Create CSV in memory
+        output = io.StringIO()
+        
+        if all_indicators:
+            # Collect all unique field names from both active and revoked
+            all_fieldnames = set()
+            for ind in all_indicators:
+                all_fieldnames.update(ind.keys())
+            
+            # Define preferred column order
+            preferred_order = ['status', 'type', 'value', 'indicator_types', 'name', 
+                             'description', 'created', 'modified', 'confidence', 'labels',
+                             'first_seen', 'last_seen', 'revoked_date']
+            
+            # Build final fieldnames list with preferred order
+            fieldnames = [f for f in preferred_order if f in all_fieldnames]
+            # Add any remaining fields not in preferred order
+            remaining = sorted(all_fieldnames - set(fieldnames))
+            fieldnames.extend(remaining)
+            
+            writer = csv.DictWriter(output, fieldnames=fieldnames, extrasaction='ignore')
+            writer.writeheader()
+            writer.writerows(all_indicators)
+        
+        # Convert to bytes for sending
+        output.seek(0)
+        
+        safe_name = "".join(c if c.isalnum() or c in (' ', '-', '_') else '_' for c in collection_name)
+        filename = f'indicators_FULL_{safe_name}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv'
+        
+        return send_file(
+            io.BytesIO(output.getvalue().encode('utf-8')),
+            mimetype='text/csv',
+            as_attachment=True,
+            download_name=filename
+        )
+    except Exception as e:
+        logger.error(f"Error getting full collection CSV: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
 
