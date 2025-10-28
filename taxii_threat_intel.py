@@ -11,6 +11,9 @@ import logging
 import sqlite3
 import threading
 import time
+import shutil
+import os
+import sys
 from datetime import datetime, timedelta
 from typing import List, Dict, Set
 from pathlib import Path
@@ -30,6 +33,9 @@ app = Flask(__name__)
 
 # Database file
 DB_FILE = 'indicators.db'
+
+# Configuration file
+CONFIG_FILE = 'config.yaml'
 
 # Initialization state
 init_state = {
@@ -1170,6 +1176,165 @@ def index():
     if init_state['status'] == 'initializing':
         return render_template('initializing.html')
     return render_template('index.html')
+
+
+@app.route('/settings')
+def settings_page():
+    """Serve the settings page"""
+    return render_template('settings.html')
+
+
+@app.route('/api/config', methods=['GET'])
+def get_config():
+    """Get current configuration"""
+    try:
+        config_full_path = os.path.abspath(CONFIG_FILE)
+        logger.info(f"Reading config from absolute path: {config_full_path}")
+        
+        with open(CONFIG_FILE, 'r') as f:
+            config = yaml.safe_load(f)
+        
+        logger.info(f"Loaded config from {CONFIG_FILE}: {config}")
+        
+        # Remove sensitive password data for display
+        config_safe = config.copy()
+        
+        # Hide global password
+        if 'password' in config_safe and config_safe['password']:
+            config_safe['password'] = '***HIDDEN***'
+        
+        if 'collections' in config_safe:
+            logger.info(f"Found {len(config_safe['collections'])} collections")
+            for i, collection in enumerate(config_safe['collections']):
+                logger.info(f"Collection {i}: {list(collection.keys())}")
+                if 'password' in collection and collection['password']:
+                    collection['password'] = '***HIDDEN***'
+        
+        logger.info(f"Returning config_safe: {config_safe}")
+        return jsonify(config_safe)
+    except Exception as e:
+        logger.error(f"Error reading config: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/config', methods=['POST'])
+def save_config():
+    """Save configuration to config.yaml"""
+    try:
+        new_config = request.get_json()
+        
+        # Validation
+        if not new_config.get('collections'):
+            return jsonify({'status': 'error', 'message': 'At least one collection is required'}), 400
+        
+        # Load existing config to preserve passwords
+        try:
+            with open(CONFIG_FILE, 'r') as f:
+                existing_config = yaml.safe_load(f)
+        except:
+            existing_config = {}
+        
+        # Preserve global password if new password is empty or ***HIDDEN***
+        if new_config.get('password') in ['', '***HIDDEN***'] and 'password' in existing_config:
+            new_config['password'] = existing_config['password']
+        
+        # Preserve existing passwords in collections if new password is empty or ***HIDDEN***
+        if 'collections' in existing_config and 'collections' in new_config:
+            for i, new_coll in enumerate(new_config['collections']):
+                if i < len(existing_config['collections']):
+                    old_coll = existing_config['collections'][i]
+                    if new_coll.get('password') in ['', '***HIDDEN***'] and 'password' in old_coll:
+                        new_coll['password'] = old_coll['password']
+        
+        # Backup existing config
+        if os.path.exists(CONFIG_FILE):
+            backup_file = f"{CONFIG_FILE}.backup"
+            shutil.copy(CONFIG_FILE, backup_file)
+            logger.info(f"Backed up config to {backup_file}")
+        
+        # Write new config
+        with open(CONFIG_FILE, 'w') as f:
+            yaml.dump(new_config, f, default_flow_style=False)
+        
+        logger.info("Configuration saved successfully")
+        
+        return jsonify({
+            'status': 'success',
+            'message': 'Configuration saved. Restart the application for changes to take effect.'
+        })
+        
+    except Exception as e:
+        logger.error(f"Error saving config: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@app.route('/api/config/reset', methods=['POST'])
+def reset_config():
+    """Reset configuration to defaults"""
+    try:
+        default_config = {
+            'server': {
+                'host': '0.0.0.0',
+                'port': 5000,
+                'debug': False
+            },
+            'database': {
+                'file': 'indicators.db'
+            },
+            'collections': []
+        }
+        
+        # Backup existing config
+        if os.path.exists(CONFIG_FILE):
+            backup_file = f"{CONFIG_FILE}.backup"
+            shutil.copy(CONFIG_FILE, backup_file)
+        
+        # Write default config
+        with open(CONFIG_FILE, 'w') as f:
+            yaml.dump(default_config, f, default_flow_style=False)
+        
+        logger.info("Configuration reset to defaults")
+        
+        return jsonify({
+            'status': 'success',
+            'message': 'Configuration reset to defaults'
+        })
+        
+    except Exception as e:
+        logger.error(f"Error resetting config: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@app.route('/api/restart', methods=['POST'])
+def restart_server():
+    """Restart the application"""
+    try:
+        logger.info("Restart requested via API")
+        
+        # Return response immediately
+        response = jsonify({
+            'status': 'success',
+            'message': 'Server restarting...'
+        })
+        
+        # Schedule restart after response is sent
+        def do_restart():
+            time.sleep(1)  # Give time for response to be sent
+            logger.info("Executing restart...")
+            os.execv(sys.executable, ['python3'] + sys.argv)
+        
+        import sys
+        threading.Thread(target=do_restart).start()
+        
+        return response
+        
+    except Exception as e:
+        logger.error(f"Error restarting server: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
 
 
 @app.route('/debug')
