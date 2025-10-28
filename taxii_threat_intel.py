@@ -62,6 +62,56 @@ auto_refresh_state = {
     'stop_event': threading.Event()
 }
 
+def save_auto_refresh_state():
+    """Save auto-refresh state to database"""
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            INSERT OR REPLACE INTO system_meta (key, value)
+            VALUES ('auto_refresh_enabled', ?)
+        ''', (str(auto_refresh_state['enabled']),))
+        
+        cursor.execute('''
+            INSERT OR REPLACE INTO system_meta (key, value)
+            VALUES ('auto_refresh_interval', ?)
+        ''', (str(auto_refresh_state['interval_minutes']),))
+        
+        conn.commit()
+        conn.close()
+        logger.info(f"Saved auto-refresh state: enabled={auto_refresh_state['enabled']}, interval={auto_refresh_state['interval_minutes']}")
+    except Exception as e:
+        logger.error(f"Error saving auto-refresh state: {e}")
+
+def load_auto_refresh_state():
+    """Load auto-refresh state from database"""
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        cursor = conn.cursor()
+        
+        # Load enabled state
+        cursor.execute('SELECT value FROM system_meta WHERE key = ?', ('auto_refresh_enabled',))
+        result = cursor.fetchone()
+        if result:
+            auto_refresh_state['enabled'] = result[0].lower() == 'true'
+        
+        # Load interval
+        cursor.execute('SELECT value FROM system_meta WHERE key = ?', ('auto_refresh_interval',))
+        result = cursor.fetchone()
+        if result:
+            auto_refresh_state['interval_minutes'] = int(result[0])
+        
+        conn.close()
+        
+        if auto_refresh_state['enabled']:
+            logger.info(f"Restored auto-refresh state: enabled={auto_refresh_state['enabled']}, interval={auto_refresh_state['interval_minutes']} minutes")
+            # Restart auto-refresh with saved settings
+            start_auto_refresh(auto_refresh_state['interval_minutes'])
+        
+    except Exception as e:
+        logger.error(f"Error loading auto-refresh state: {e}")
+
 # Refresh progress state
 refresh_progress = {
     'in_progress': False,
@@ -235,6 +285,10 @@ def migrate_database():
         if 'error' not in coll_columns:
             logger.info("Adding error column to collections table")
             cursor.execute('ALTER TABLE collections ADD COLUMN error TEXT')
+        
+        if 'last_fetch_timestamp' not in coll_columns:
+            logger.info("Adding last_fetch_timestamp column to collections table")
+            cursor.execute('ALTER TABLE collections ADD COLUMN last_fetch_timestamp TEXT')
         
         conn.commit()
         logger.info("Database migration completed successfully")
@@ -587,7 +641,7 @@ class TaxiiCollector:
                                   collections_total=len(collections))
             
             try:
-                objects = self._fetch_collection_objects(collection_url, collection_name, auth)
+                objects = self._fetch_collection_objects(collection_url, collection_name, auth, idx)
                 all_objects.extend(objects)
                 collection_objects[idx] = objects  # Store per-collection
                 
@@ -641,11 +695,18 @@ class TaxiiCollector:
         
         return all_objects, collection_stats, collection_objects
     
-    def _fetch_collection_objects(self, collection_url: str, collection_name: str, auth: tuple) -> List[Dict]:
-        """Fetch STIX objects from a single collection with pagination support"""
+    def _fetch_collection_objects(self, collection_url: str, collection_name: str, auth: tuple, collection_index: int) -> List[Dict]:
+        """Fetch STIX objects from a single collection with pagination support and incremental updates"""
         all_objects = []
         page_count = 0
         max_pages = self.config.get('max_pages', 50)
+        
+        # Load last fetch timestamp for incremental updates
+        last_fetch_timestamp = self._get_last_fetch_timestamp(collection_index)
+        if last_fetch_timestamp:
+            logger.info(f"[{collection_name}] Using incremental fetch from {last_fetch_timestamp}")
+        else:
+            logger.info(f"[{collection_name}] Performing full fetch (no previous timestamp)")
         
         try:
             import requests
@@ -656,7 +717,8 @@ class TaxiiCollector:
                 'Content-Type': 'application/taxii+json;version=2.1'
             }
             
-            next_param = None
+            next_param = last_fetch_timestamp  # Start with last fetch timestamp for incremental updates
+            fetch_start_time = datetime.now().isoformat()  # Record when we started this fetch
             
             # Paginate through results
             while page_count < max_pages:
@@ -739,7 +801,56 @@ class TaxiiCollector:
             raise
         
         logger.info(f"[{collection_name}] Fetching complete. Total objects retrieved: {len(all_objects)} across {page_count} page(s)")
+        
+        # Save the fetch timestamp for next incremental update
+        self._save_last_fetch_timestamp(collection_index, fetch_start_time)
+        logger.info(f"[{collection_name}] Saved fetch timestamp: {fetch_start_time}")
+        
         return all_objects
+    
+    def _get_last_fetch_timestamp(self, collection_index: int) -> str:
+        """Get the last fetch timestamp for a collection"""
+        try:
+            conn = sqlite3.connect(DB_FILE)
+            cursor = conn.cursor()
+            cursor.execute(
+                'SELECT last_fetch_timestamp FROM collections WHERE collection_index = ?',
+                (collection_index,)
+            )
+            result = cursor.fetchone()
+            conn.close()
+            return result[0] if result and result[0] else None
+        except Exception as e:
+            logger.error(f"Error getting last fetch timestamp: {e}")
+            return None
+    
+    def _save_last_fetch_timestamp(self, collection_index: int, timestamp: str):
+        """Save the last fetch timestamp for a collection"""
+        try:
+            conn = sqlite3.connect(DB_FILE)
+            cursor = conn.cursor()
+            
+            # First, ensure a row exists for this collection (with minimal data)
+            cursor.execute('''
+                INSERT OR IGNORE INTO collections (collection_index, name, status)
+                VALUES (?, ?, ?)
+            ''', (collection_index, f'Collection {collection_index}', 'unknown'))
+            
+            # Now update the timestamp
+            cursor.execute('''
+                UPDATE collections 
+                SET last_fetch_timestamp = ?
+                WHERE collection_index = ?
+            ''', (timestamp, collection_index))
+            
+            logger.debug(f"Saved timestamp {timestamp} for collection {collection_index}")
+            
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            logger.error(f"Error saving last fetch timestamp for collection {collection_index}: {e}")
+            import traceback
+            traceback.print_exc()
     
     def extract_indicators(self, stix_objects: List[Dict]) -> tuple:
         """
@@ -1154,6 +1265,9 @@ def start_auto_refresh(interval_minutes=360):
     thread.start()
     auto_refresh_state['thread'] = thread
     
+    # Save state to database
+    save_auto_refresh_state()
+    
     logger.info(f"Auto-refresh started with {interval_minutes} minute interval")
 
 
@@ -1166,6 +1280,10 @@ def stop_auto_refresh():
         auto_refresh_state['thread'].join(timeout=5)
     
     auto_refresh_state['next_refresh'] = None
+    
+    # Save state to database
+    save_auto_refresh_state()
+    
     logger.info("Auto-refresh stopped")
 
 
@@ -1189,12 +1307,10 @@ def get_config():
     """Get current configuration"""
     try:
         config_full_path = os.path.abspath(CONFIG_FILE)
-        logger.info(f"Reading config from absolute path: {config_full_path}")
+        logger.info(f"Reading config from: {config_full_path}")
         
         with open(CONFIG_FILE, 'r') as f:
             config = yaml.safe_load(f)
-        
-        logger.info(f"Loaded config from {CONFIG_FILE}: {config}")
         
         # Remove sensitive password data for display
         config_safe = config.copy()
@@ -1203,14 +1319,12 @@ def get_config():
         if 'password' in config_safe and config_safe['password']:
             config_safe['password'] = '***HIDDEN***'
         
+        # Hide passwords in collections
         if 'collections' in config_safe:
-            logger.info(f"Found {len(config_safe['collections'])} collections")
-            for i, collection in enumerate(config_safe['collections']):
-                logger.info(f"Collection {i}: {list(collection.keys())}")
+            for collection in config_safe['collections']:
                 if 'password' in collection and collection['password']:
                     collection['password'] = '***HIDDEN***'
         
-        logger.info(f"Returning config_safe: {config_safe}")
         return jsonify(config_safe)
     except Exception as e:
         logger.error(f"Error reading config: {e}")
@@ -1335,12 +1449,6 @@ def restart_server():
     except Exception as e:
         logger.error(f"Error restarting server: {e}")
         return jsonify({'status': 'error', 'message': str(e)}), 500
-
-
-@app.route('/debug')
-def debug():
-    """Serve debug page"""
-    return render_template('debug.html')
 
 
 @app.route('/api/init-status')
@@ -1828,7 +1936,7 @@ def get_edl_all():
     """Get all indicators in EDL (External Dynamic List) format"""
     indicators = indicators_cache['indicators']
     
-    # EDL format: one indicator per line (IP, domain, URL)
+    # EDL format: one indicator per line (IP, domain, URL, file hashes)
     edl_lines = []
     seen = set()  # Avoid duplicates
     
@@ -1839,8 +1947,8 @@ def get_edl_all():
         if not value or value in seen:
             continue
         
-        # EDL supports: IP addresses, domains, URLs
-        if ioc_type in ['ip', 'ipv4', 'ipv6', 'domain', 'url']:
+        # EDL supports: IP addresses, domains, URLs, and file hashes
+        if ioc_type in ['ip', 'ipv4', 'ipv6', 'domain', 'url', 'file-hash-MD5', 'file-hash-SHA-1', 'file-hash-SHA-256']:
             edl_lines.append(value)
             seen.add(value)
     
@@ -1880,8 +1988,8 @@ def get_edl_collection(collection_index):
             if not value or value in seen:
                 continue
             
-            # EDL supports: IP addresses, domains, URLs
-            if ioc_type in ['ip', 'ipv4', 'ipv6', 'domain', 'url']:
+            # EDL supports: IP addresses, domains, URLs, and file hashes
+            if ioc_type in ['ip', 'ipv4', 'ipv6', 'domain', 'url', 'file-hash-MD5', 'file-hash-SHA-1', 'file-hash-SHA-256']:
                 edl_lines.append(value)
                 seen.add(value)
         
@@ -2093,6 +2201,13 @@ def get_refresh_progress_api():
 @app.route('/api/refresh', methods=['POST'])
 def refresh_indicators():
     """Refresh all indicators from TAXII server"""
+    # Prevent concurrent refreshes
+    if refresh_progress['in_progress']:
+        return jsonify({
+            'status': 'error',
+            'message': 'Refresh already in progress'
+        }), 429  # Too Many Requests
+    
     try:
         update_refresh_progress('starting', 'Initializing refresh...', 5)
         
@@ -2350,7 +2465,7 @@ def refresh_collection(collection_index):
         logger.info(f"Collection {collection_index} currently has {len(current_indicators)} indicators")
         
         # STEP 2: Fetch new indicators from TAXII for this collection
-        objects = collector._fetch_collection_objects(collection_url, collection_name, auth)
+        objects = collector._fetch_collection_objects(collection_url, collection_name, auth, collection_index)
         active_indicators, revoked_indicators = collector.extract_indicators(objects)
         
         logger.info(f"Fetched {len(active_indicators)} active, {len(revoked_indicators)} server-revoked indicators")
@@ -2523,6 +2638,9 @@ def initialize_app():
         init_state['message'] = 'Ready'
         init_state['progress'] = 100
         
+        # Restore auto-refresh state if it was previously enabled
+        load_auto_refresh_state()
+        
         logger.info(f"Initialization complete. {len(indicators_cache['indicators'])} indicators saved to database.")
     except Exception as e:
         logger.warning(f"Could not initialize indicators: {e}")
@@ -2530,6 +2648,12 @@ def initialize_app():
         init_state['status'] = 'error'
         init_state['message'] = f'Initialization failed: {str(e)}'
         init_state['progress'] = 0
+        
+        # Try to restore auto-refresh state even if initialization failed
+        try:
+            load_auto_refresh_state()
+        except Exception as e:
+            logger.error(f"Could not restore auto-refresh state: {e}")
 
 
 if __name__ == '__main__':

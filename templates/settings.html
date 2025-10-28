@@ -247,6 +247,16 @@
                 </div>
             </div>
             
+            <!-- Pagination Settings -->
+            <div class="settings-section">
+                <h2>📄 Pagination Settings</h2>
+                <div class="form-group">
+                    <label for="maxPages">Maximum Pages per Collection</label>
+                    <input type="number" id="maxPages" min="1" max="1000" placeholder="50">
+                    <small>Maximum number of pages to fetch from each collection (default: 50). Increase if you have large collections with more data.</small>
+                </div>
+            </div>
+            
             <!-- TAXII Collections -->
             <div class="settings-section">
                 <h2>📡 TAXII Collections</h2>
@@ -272,8 +282,6 @@
             try {
                 const response = await fetch('/api/config');
                 currentConfig = await response.json();
-                console.log('Loaded config:', currentConfig);
-                console.log('Collections:', currentConfig.collections);
                 populateForm(currentConfig);
             } catch (error) {
                 console.error('Error loading settings:', error);
@@ -282,41 +290,30 @@
         }
         
         function populateForm(config) {
-            console.log('Populating form with config:', config);
-            console.log('Full config structure:', JSON.stringify(config, null, 2));
-            
-            // Global credentials - check multiple possible locations
+            // Global credentials
             const globalUsername = document.getElementById('globalUsername');
             const globalPassword = document.getElementById('globalPassword');
             
-            console.log('Username field found:', !!globalUsername);
-            console.log('Password field found:', !!globalPassword);
-            
             if (globalUsername && globalPassword) {
-                // Try to find credentials in various places
+                // Try to find credentials in various places for backwards compatibility
                 let username = config.username || config.server?.username || config.auth?.username || '';
                 let password = config.password || config.server?.password || config.auth?.password || '';
                 
-                console.log('Found username:', username);
-                console.log('Found password:', password);
-                
                 globalUsername.value = username;
                 globalPassword.value = password === '***HIDDEN***' ? '' : password;
-                
-                console.log('Username field set to:', globalUsername.value);
-                console.log('Password field set to:', globalPassword.value);
-                console.log('Credentials populated');
-            } else {
-                console.error('Credential fields not found!');
+            }
+            
+            // Max pages setting
+            const maxPages = document.getElementById('maxPages');
+            if (maxPages) {
+                maxPages.value = config.max_pages || 50;
             }
             
             // Collections
-            console.log('About to render collections:', config.collections);
             renderCollections(config.collections || []);
         }
         
         function renderCollections(collections) {
-            console.log('renderCollections called with:', collections);
             const container = document.getElementById('collectionsContainer');
             
             if (!container) {
@@ -327,28 +324,12 @@
             container.innerHTML = '';
             
             if (!collections || collections.length === 0) {
-                console.log('No collections to render');
                 container.innerHTML = '<p style="color: #a0aec0;">No collections configured yet. Click "Add Collection" to create one.</p>';
                 return;
             }
             
             collections.forEach((collection, index) => {
-                console.log(`Rendering collection ${index}:`, collection);
-                
-                // Test escapeHtml on each field
                 const escapedName = escapeHtml(collection.name || '');
-                const escapedDiscovery = escapeHtml(collection.discovery_url || '');
-                const escapedApiRoot = escapeHtml(collection.api_root || '');
-                const escapedId = escapeHtml(collection.collection_id || '');
-                const escapedUsername = escapeHtml(collection.username || '');
-                const escapedPassword = escapeHtml(collection.password || '');
-                
-                console.log(`Escaped values for collection ${index}:`, {
-                    name: escapedName,
-                    discovery: escapedDiscovery,
-                    apiRoot: escapedApiRoot,
-                    id: escapedId
-                });
                 
                 const collectionHtml = `
                     <div class="collection-item" data-index="${index}">
@@ -372,12 +353,8 @@
                     </div>
                 `;
                 
-                console.log(`About to insert HTML for collection ${index}`);
                 container.insertAdjacentHTML('beforeend', collectionHtml);
-                console.log(`Inserted HTML for collection ${index}`);
             });
-            
-            console.log(`Rendered ${collections.length} collections`);
         }
         
         function addCollection() {
@@ -412,12 +389,12 @@
         }
         
         async function saveSettings() {
-            // Match the actual config structure
+            // Match the actual config structure with root-level credentials
             const config = {
-                collections: getCurrentCollections(),
-                max_pages: currentConfig.max_pages || 50,
                 username: document.getElementById('globalUsername').value,
-                password: document.getElementById('globalPassword').value || currentConfig.password
+                password: document.getElementById('globalPassword').value || currentConfig.password || '',
+                collections: getCurrentCollections(),
+                max_pages: parseInt(document.getElementById('maxPages').value) || 50
             };
             
             try {
@@ -443,7 +420,7 @@
         async function saveAndRestart() {
             const config = {
                 collections: getCurrentCollections(),
-                max_pages: currentConfig.max_pages || 50,
+                max_pages: parseInt(document.getElementById('maxPages').value) || 50,
                 username: document.getElementById('globalUsername').value,
                 password: document.getElementById('globalPassword').value || currentConfig.password
             };

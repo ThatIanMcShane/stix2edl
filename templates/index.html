@@ -472,7 +472,7 @@
 <body>
     <div class="container">
         <header>
-            <h1>STIX2EDL<span class="version">v1.0</span></h1>
+            <h1>STIX2EDL<span class="version">v1.1</span></h1>
         </header>
         
         <div id="alertBox" class="alert"></div>
@@ -574,7 +574,7 @@
         
         <footer class="footer">
             <div class="footer-content">
-                <strong>STIX2EDL v1.0</strong><br>
+                <strong>STIX2EDL v1.1</strong><br>
                 Lovingly vibecoded by <a href="https://github.com/ThatIanMcShane" target="_blank">Ian McShane</a><br>
                 Open Source under MIT License<br>
                 Convert TAXII threat intelligence feeds to firewall External Dynamic Lists
@@ -823,7 +823,15 @@
             return card;
         }
         
+        let refreshInProgress = false;
+        
         function refreshAll() {
+            if (refreshInProgress) {
+                showAlert('Refresh already in progress', 'warning');
+                return;
+            }
+            
+            refreshInProgress = true;
             showLoading(true);
             showAlert('Starting refresh from TAXII servers...', 'info', true);
             
@@ -859,7 +867,7 @@
                         }
                     })
                     .catch(err => console.error('Error fetching progress:', err));
-            }, 300); // Poll every 300ms for smoother updates
+            }, 2000); // Poll every 2 seconds for progress updates
             
             fetch('/api/refresh', {
                 method: 'POST'
@@ -875,6 +883,7 @@
                 }));
             })
             .then(({status, data}) => {
+                refreshInProgress = false;
                 showLoading(false);
                 if (data.status === 'success') {
                     showAlert(`Successfully refreshed! Loaded ${data.indicator_count} indicators.`, 'success');
@@ -891,6 +900,7 @@
                 }
             })
             .catch(error => {
+                refreshInProgress = false;
                 clearInterval(progressInterval);
                 showLoading(false);
                 console.error('Error refreshing:', error);
