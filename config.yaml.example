@@ -21,7 +21,8 @@ collections:
 
 # === Pagination Settings ===
 # Maximum number of pages to fetch per collection
-# Default: 50
+# Increase this if you have large collections with more than 50 pages of data
+# Each page typically contains ~100 indicators
 max_pages: 50
 
 # Additional configuration options can be added below as needed

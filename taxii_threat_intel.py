@@ -1,7 +1,41 @@
 #!/usr/bin/env python3
 """
-TAXII Threat Intelligence Collector
+TAXII Threat Intelligence Collector v1.1
 Connects to TAXII servers, downloads STIX 2.1 indicators, and serves them via API
+
+SECURITY MODEL:
+---------------
+API endpoints are secured based on their purpose:
+
+1. PUBLIC (No restrictions):
+   - /api/edl/all - EDL feed for firewall consumption
+   - /api/edl/collection/<index> - Per-collection EDL feeds
+   
+2. LOCALHOST ONLY (No authentication):
+   - /api/init-status - Initialization progress
+   - /api/status - System status
+   - /api/stats - Statistics
+   - /api/collections - Collection metadata
+   - /api/indicators - Indicator list (JSON)
+   - /api/indicators/csv - Download indicators
+   - /api/collection/<index>/csv - Collection downloads
+   - /api/collection/<index>/full-csv - Full exports
+   - /api/auto-refresh/status - Auto-refresh status
+   - /api/refresh/progress - Refresh progress
+   
+3. AUTHENTICATED + LOCALHOST (Admin operations):
+   - /login, /logout - Authentication
+   - /, /settings - Web UI pages
+   - /api/config (GET/POST) - Configuration management
+   - /api/config/reset - Reset config
+   - /api/restart - Restart application
+   - /api/refresh - Trigger manual refresh
+   - /api/collection/<index>/refresh - Refresh single collection
+   - /api/auto-refresh/start - Start auto-refresh
+   - /api/auto-refresh/stop - Stop auto-refresh
+
+Authentication uses session-based login with configurable timeout (default 72 hours).
+Passwords are stored in database (system_meta table).
 """
 
 import json
@@ -18,7 +52,7 @@ from datetime import datetime, timedelta
 from typing import List, Dict, Set
 from pathlib import Path
 
-from flask import Flask, jsonify, send_file, request, render_template, Response
+from flask import Flask, jsonify, send_file, request, render_template, Response, session, redirect, url_for
 from taxii2client.v21 import Server, Collection
 import yaml
 
@@ -30,6 +64,8 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
+app.secret_key = os.urandom(24)  # Secret key for session management
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=72)  # Default 72 hours
 
 # Database file
 DB_FILE = 'indicators.db'
@@ -41,8 +77,113 @@ CONFIG_FILE = 'config.yaml'
 init_state = {
     'status': 'initializing',  # initializing, ready, error
     'message': 'Starting up...',
-    'progress': 0
+    'progress': 0,
+    'current_collection': None,  # Currently processing collection name
+    'collection_states': {}  # {index: {'status': 'pending'|'processing'|'complete'|'error', 'name': '', 'error': ''}}
 }
+
+def update_collection_init_state(collection_index: int, status: str, name: str = '', error: str = ''):
+    """Update initialization state for a specific collection"""
+    init_state['collection_states'][collection_index] = {
+        'status': status,
+        'name': name,
+        'error': error
+    }
+    if status == 'processing':
+        init_state['current_collection'] = name
+
+
+# ============================================================================
+# Authentication Functions
+# ============================================================================
+
+def get_login_password():
+    """Get the login password from database"""
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        cursor = conn.cursor()
+        cursor.execute('SELECT value FROM system_meta WHERE key = ?', ('login_password',))
+        result = cursor.fetchone()
+        conn.close()
+        return result[0] if result else None
+    except:
+        return None
+
+def set_login_password(password):
+    """Set the login password in database"""
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute('''
+        INSERT OR REPLACE INTO system_meta (key, value)
+        VALUES ('login_password', ?)
+    ''', (password,))
+    conn.commit()
+    conn.close()
+
+def get_session_timeout():
+    """Get session timeout in hours from database (default 72)"""
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        cursor = conn.cursor()
+        cursor.execute('SELECT value FROM system_meta WHERE key = ?', ('session_timeout',))
+        result = cursor.fetchone()
+        conn.close()
+        return int(result[0]) if result else 72
+    except:
+        return 72
+
+def set_session_timeout(hours):
+    """Set session timeout in database"""
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute('''
+        INSERT OR REPLACE INTO system_meta (key, value)
+        VALUES ('session_timeout', ?)
+    ''', (str(hours),))
+    conn.commit()
+    conn.close()
+
+def is_authenticated():
+    """Check if user is authenticated"""
+    return session.get('authenticated', False)
+
+def require_auth(f):
+    """Decorator to require authentication for routes"""
+    from functools import wraps
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if not is_authenticated():
+            return redirect(url_for('login'))
+        return f(*args, **kwargs)
+    return decorated_function
+
+
+def localhost_only(f):
+    """Decorator to restrict access to localhost only"""
+    from functools import wraps
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        # Allow localhost, 127.0.0.1, and ::1 (IPv6 localhost)
+        if request.remote_addr not in ['127.0.0.1', 'localhost', '::1']:
+            return jsonify({'error': 'Access denied. This endpoint is only accessible from localhost.'}), 403
+        return f(*args, **kwargs)
+    return decorated_function
+
+
+def require_auth_and_localhost(f):
+    """Decorator to require both authentication and localhost access"""
+    from functools import wraps
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        # Check localhost first
+        if request.remote_addr not in ['127.0.0.1', 'localhost', '::1']:
+            return jsonify({'error': 'Access denied. This endpoint is only accessible from localhost.'}), 403
+        # Then check authentication
+        if not is_authenticated():
+            return redirect(url_for('login'))
+        return f(*args, **kwargs)
+    return decorated_function
+
 
 # Global storage for indicators (cache only)
 indicators_cache = {
@@ -290,6 +431,26 @@ def migrate_database():
             logger.info("Adding last_fetch_timestamp column to collections table")
             cursor.execute('ALTER TABLE collections ADD COLUMN last_fetch_timestamp TEXT')
         
+        if 'ever_successful' not in coll_columns:
+            logger.info("Adding ever_successful column to collections table")
+            cursor.execute('ALTER TABLE collections ADD COLUMN ever_successful INTEGER DEFAULT 0')
+            # Mark existing successful collections as ever_successful
+            cursor.execute('''
+                UPDATE collections 
+                SET ever_successful = 1
+                WHERE status = 'success'
+            ''')
+        
+        if 'last_successful_update' not in coll_columns:
+            logger.info("Adding last_successful_update column to collections table")
+            cursor.execute('ALTER TABLE collections ADD COLUMN last_successful_update TEXT')
+            # Initialize with last_updated for successful collections
+            cursor.execute('''
+                UPDATE collections 
+                SET last_successful_update = last_updated
+                WHERE status = 'success'
+            ''')
+        
         conn.commit()
         logger.info("Database migration completed successfully")
         
@@ -431,11 +592,32 @@ def save_collection_metadata(collection_index: int, name: str, url: str, status:
     if error:
         error = simplify_error_message(error)
     
-    cursor.execute('''
-        INSERT OR REPLACE INTO collections 
-        (collection_index, name, url, status, last_updated, object_count, error)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-    ''', (collection_index, name, url, status, datetime.now().isoformat(), object_count, error))
+    # If this is a successful update, mark as ever_successful and update last_successful_update
+    now = datetime.now().isoformat()
+    
+    if status == 'success':
+        cursor.execute('''
+            INSERT OR REPLACE INTO collections 
+            (collection_index, name, url, status, last_updated, object_count, error, ever_successful, last_successful_update)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)
+        ''', (collection_index, name, url, status, now, object_count, error, now))
+    else:
+        # Failed update - preserve ever_successful and last_successful_update from before
+        cursor.execute('SELECT ever_successful, last_successful_update FROM collections WHERE collection_index = ?', (collection_index,))
+        existing = cursor.fetchone()
+        
+        if existing:
+            ever_successful = existing[0] if existing[0] is not None else 0
+            last_successful_update = existing[1]
+        else:
+            ever_successful = 0
+            last_successful_update = None
+        
+        cursor.execute('''
+            INSERT OR REPLACE INTO collections 
+            (collection_index, name, url, status, last_updated, object_count, error, ever_successful, last_successful_update)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (collection_index, name, url, status, now, object_count, error, ever_successful, last_successful_update))
     
     conn.commit()
     conn.close()
@@ -632,6 +814,10 @@ class TaxiiCollector:
             logger.info(f"URL: {collection_url}")
             logger.info(f"=" * 70)
             
+            # Update init state for this collection (during initialization)
+            if init_state['status'] == 'initializing':
+                update_collection_init_state(idx, 'processing', collection_name)
+            
             # Update progress
             collections_done = len(collection_stats)
             percent = 15 + int((collections_done / len(collections)) * 20)  # 15-35%
@@ -654,10 +840,19 @@ class TaxiiCollector:
                 }
                 collection_stats.append(stats)
                 
+                # Mark collection as complete during initialization
+                if init_state['status'] == 'initializing':
+                    update_collection_init_state(idx, 'complete', collection_name)
+                
                 logger.info(f"✅ Successfully fetched {len(objects)} objects from '{collection_name}'")
                 
             except Exception as e:
                 logger.error(f"❌ Failed to fetch from '{collection_name}': {e}")
+                
+                # Mark collection as error during initialization
+                if init_state['status'] == 'initializing':
+                    update_collection_init_state(idx, 'error', collection_name, str(e))
+                
                 stats = {
                     'index': idx,
                     'name': collection_name,
@@ -1287,22 +1482,74 @@ def stop_auto_refresh():
     logger.info("Auto-refresh stopped")
 
 
+# ============================================================================
+# Authentication Routes
+# ============================================================================
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    """Handle login"""
+    if request.method == 'POST':
+        password = request.form.get('password', '')
+        stored_password = get_login_password()
+        
+        # If no password is set, any password works (first-time setup)
+        if stored_password is None:
+            set_login_password(password)
+            session['authenticated'] = True
+            session.permanent = True
+            
+            # Update session lifetime
+            timeout_hours = get_session_timeout()
+            app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=timeout_hours)
+            
+            logger.info("First-time login: password set")
+            return redirect(url_for('index'))
+        
+        # Check password
+        if password == stored_password:
+            session['authenticated'] = True
+            session.permanent = True
+            
+            # Update session lifetime
+            timeout_hours = get_session_timeout()
+            app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=timeout_hours)
+            
+            logger.info("User logged in successfully")
+            return redirect(url_for('index'))
+        else:
+            logger.warning("Failed login attempt")
+            return render_template('login.html', error='Invalid password')
+    
+    # GET request - show login form
+    return render_template('login.html')
+
+
+@app.route('/logout')
+def logout():
+    """Handle logout"""
+    session.clear()
+    logger.info("User logged out")
+    return redirect(url_for('login'))
+
+
 @app.route('/')
+@require_auth_and_localhost
 def index():
     """Serve the web interface"""
-    # If still initializing, show initialization page
-    if init_state['status'] == 'initializing':
-        return render_template('initializing.html')
+    # Always show dashboard - initialization state is shown via API
     return render_template('index.html')
 
 
 @app.route('/settings')
+@require_auth_and_localhost
 def settings_page():
     """Serve the settings page"""
     return render_template('settings.html')
 
 
 @app.route('/api/config', methods=['GET'])
+@require_auth_and_localhost
 def get_config():
     """Get current configuration"""
     try:
@@ -1315,15 +1562,17 @@ def get_config():
         # Remove sensitive password data for display
         config_safe = config.copy()
         
-        # Hide global password
-        if 'password' in config_safe and config_safe['password']:
-            config_safe['password'] = '***HIDDEN***'
+        # Remove auth fields that should only be in database, not YAML
+        config_safe.pop('login_password', None)
+        config_safe.pop('session_timeout', None)
+        config_safe.pop('login_password_set', None)
         
-        # Hide passwords in collections
-        if 'collections' in config_safe:
-            for collection in config_safe['collections']:
-                if 'password' in collection and collection['password']:
-                    collection['password'] = '***HIDDEN***'
+        # Don't hide TAXII passwords - they need to be editable in settings
+        # (Login password is separate and stored in database)
+        
+        # Add authentication settings from database
+        config_safe['login_password_set'] = get_login_password() is not None
+        config_safe['session_timeout'] = get_session_timeout()
         
         return jsonify(config_safe)
     except Exception as e:
@@ -1334,6 +1583,7 @@ def get_config():
 
 
 @app.route('/api/config', methods=['POST'])
+@require_auth_and_localhost
 def save_config():
     """Save configuration to config.yaml"""
     try:
@@ -1350,17 +1600,29 @@ def save_config():
         except:
             existing_config = {}
         
-        # Preserve global password if new password is empty or ***HIDDEN***
-        if new_config.get('password') in ['', '***HIDDEN***'] and 'password' in existing_config:
+        # Preserve global password if new password is empty (user didn't change it)
+        if not new_config.get('password') and 'password' in existing_config:
             new_config['password'] = existing_config['password']
         
-        # Preserve existing passwords in collections if new password is empty or ***HIDDEN***
+        # Preserve existing passwords in collections if new password is empty
         if 'collections' in existing_config and 'collections' in new_config:
             for i, new_coll in enumerate(new_config['collections']):
                 if i < len(existing_config['collections']):
                     old_coll = existing_config['collections'][i]
-                    if new_coll.get('password') in ['', '***HIDDEN***'] and 'password' in old_coll:
+                    if not new_coll.get('password') and 'password' in old_coll:
                         new_coll['password'] = old_coll['password']
+        
+        # Handle authentication settings (stored separately in database)
+        if 'login_password' in new_config and new_config['login_password']:
+            set_login_password(new_config['login_password'])
+        
+        if 'session_timeout' in new_config:
+            set_session_timeout(int(new_config['session_timeout']))
+        
+        # Remove ALL auth-related metadata fields that shouldn't be saved to YAML
+        new_config.pop('login_password', None)
+        new_config.pop('session_timeout', None)
+        new_config.pop('login_password_set', None)
         
         # Backup existing config
         if os.path.exists(CONFIG_FILE):
@@ -1387,6 +1649,7 @@ def save_config():
 
 
 @app.route('/api/config/reset', methods=['POST'])
+@require_auth_and_localhost
 def reset_config():
     """Reset configuration to defaults"""
     try:
@@ -1424,6 +1687,7 @@ def reset_config():
 
 
 @app.route('/api/restart', methods=['POST'])
+@require_auth_and_localhost
 def restart_server():
     """Restart the application"""
     try:
@@ -1452,12 +1716,14 @@ def restart_server():
 
 
 @app.route('/api/init-status')
+@localhost_only
 def get_init_status():
     """Get initialization status"""
     return jsonify(init_state)
 
 
 @app.route('/api/status')
+@localhost_only
 def status():
     """Get status of indicator collection"""
     collections_config = []
@@ -1497,6 +1763,7 @@ def status():
 
 
 @app.route('/api/stats')
+@localhost_only
 def get_stats():
     """Get comprehensive indicator statistics"""
     try:
@@ -1604,6 +1871,7 @@ def get_stats():
 
 
 @app.route('/api/auto-refresh/status')
+@localhost_only
 def auto_refresh_status():
     """Get auto-refresh status"""
     interval_minutes = auto_refresh_state.get('interval_minutes', 360)
@@ -1619,6 +1887,7 @@ def auto_refresh_status():
 
 
 @app.route('/api/auto-refresh/start', methods=['POST'])
+@require_auth_and_localhost
 def api_start_auto_refresh():
     """Start auto-refresh with input validation"""
     try:
@@ -1685,6 +1954,7 @@ def api_start_auto_refresh():
 
 
 @app.route('/api/auto-refresh/stop', methods=['POST'])
+@require_auth_and_localhost
 def api_stop_auto_refresh():
     """Stop auto-refresh"""
     try:
@@ -1701,6 +1971,7 @@ def api_stop_auto_refresh():
 
 
 @app.route('/api/collections')
+@localhost_only
 def get_collections():
     """Get list of configured collections with their status"""
     try:
@@ -1731,7 +2002,9 @@ def get_collections():
                 'last_updated': coll_meta.get('last_updated') if coll_meta else None,
                 'status': coll_meta.get('status', 'unknown') if coll_meta else 'not loaded',
                 'error': coll_meta.get('error') if coll_meta else None,
-                'newest_indicator': newest_date
+                'newest_indicator': newest_date,
+                'ever_successful': coll_meta.get('ever_successful', 0) if coll_meta else 0,
+                'last_successful_update': coll_meta.get('last_successful_update') if coll_meta else None
             })
         
         return jsonify({
@@ -1746,6 +2019,7 @@ def get_collections():
 
 
 @app.route('/api/indicators')
+@localhost_only
 def get_indicators_json():
     """Get indicators in JSON format"""
     indicator_type = request.args.get('type')
@@ -1764,6 +2038,7 @@ def get_indicators_json():
 
 
 @app.route('/api/indicators/csv')
+@localhost_only
 def get_indicators_csv():
     """Download all indicators as CSV file"""
     indicators = indicators_cache['indicators']
@@ -1789,6 +2064,7 @@ def get_indicators_csv():
 
 
 @app.route('/api/collection/<int:collection_index>/csv')
+@localhost_only
 def get_collection_csv(collection_index):
     """Download indicators for a specific collection as CSV"""
     try:
@@ -1828,6 +2104,7 @@ def get_collection_csv(collection_index):
 
 
 @app.route('/api/collection/<int:collection_index>/full-csv')
+@localhost_only
 def get_collection_full_csv(collection_index):
     """Download ALL indicators (active + revoked) for a specific collection as CSV"""
     try:
@@ -2193,12 +2470,14 @@ def save_daily_stats(comparison_result, new_indicators_by_collection):
 
 
 @app.route('/api/refresh/progress')
+@localhost_only
 def get_refresh_progress_api():
     """Get current refresh progress"""
     return jsonify(get_refresh_progress())
 
 
 @app.route('/api/refresh', methods=['POST'])
+@require_auth_and_localhost
 def refresh_indicators():
     """Refresh all indicators from TAXII server"""
     # Prevent concurrent refreshes
@@ -2412,6 +2691,7 @@ def refresh_indicators():
 
 
 @app.route('/api/collection/<int:collection_index>/refresh', methods=['POST'])
+@require_auth_and_localhost
 def refresh_collection(collection_index):
     """Refresh indicators from a specific collection"""
     try:
@@ -2533,6 +2813,8 @@ def initialize_app():
     init_state['status'] = 'initializing'
     init_state['message'] = 'Initializing database...'
     init_state['progress'] = 10
+    init_state['collection_states'] = {}
+    init_state['current_collection'] = None
     
     init_database()
     
@@ -2541,6 +2823,16 @@ def initialize_app():
         migrate_database()
     except Exception as e:
         logger.error(f"Migration failed, but continuing: {e}")
+    
+    # Initialize collection states to 'pending'
+    try:
+        collector = TaxiiCollector()
+        collections = collector.config.get('collections', [])
+        for idx, coll in enumerate(collections):
+            if coll.get('enabled', True):
+                update_collection_init_state(idx, 'pending', coll.get('name', f'Collection {idx}'))
+    except Exception as e:
+        logger.error(f"Could not load collection config: {e}")
     
     # Try to load from database first
     try:

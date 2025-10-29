@@ -1,6 +1,6 @@
 # STIX2EDL
 
-**Version 1.0**
+**Version 1.1**
 
 Convert TAXII threat intelligence feeds into firewall-consumable External Dynamic Lists (EDL).
 
@@ -8,40 +8,46 @@ Convert TAXII threat intelligence feeds into firewall-consumable External Dynami
 
 **THIS IS A PROOF OF CONCEPT TOOL**
 
-This tool was developed as a proof of concept and is NOT intended for production use. See Security Considerations section below for important details.
+This tool was developed as a proof of concept and is NOT intended for production use without proper security review. See Security Considerations section below for important details.
 
 ### Testing Environment
-- Tested on: macOS 15.7.1
-- Testing scope: Functionality only
+- Tested on: macOS 15.7.1, Ubuntu 22.04 LTS
+- Testing scope: Functionality and security features
 - Data source: Arctic Wolf Threat Feed (STIX2 format)
 
 ## Overview
 
-STIX2EDL connects to TAXII 2.1 servers, fetches threat intelligence indicators, and serves them in EDL format for consumption by firewalls and security appliances. It supports multiple collections, persistent storage, and provides a clean web interface for management.
+STIX2EDL connects to TAXII 2.1 servers, fetches threat intelligence indicators, and serves them in EDL format for consumption by firewalls and security appliances. It supports multiple collections, persistent storage, automatic refresh, and provides a secure web interface for management.
 
 ## Features
 
+### v1.1 Features
+- **Password-Protected Access** - Session-based authentication with configurable timeout
+- **Three-State Health Indicators** - Green (healthy), Amber (warning), Red (critical)
+- **Auto-Refresh Scheduling** - Automatic periodic indicator updates
+- **Collection Management** - Enable/disable collections individually
+
+### Core Features
 - **TAXII 2.1 Support** - Connects to any TAXII 2.1 compliant server
 - **Multiple Collections** - Manage multiple threat feeds simultaneously
 - **EDL Export** - Generates firewall-ready External Dynamic Lists
 - **Web Interface** - Modern, responsive dashboard for management
-- **Persistent Storage** - SQLite database for indicator persistence
-- **Automatic Deduplication** - Prevents duplicate indicators
+- **Persistent Storage** - SQLite database with automatic deduplication
 - **CSV Export** - Download indicators in CSV format
 - **RESTful API** - Full API for automation and integration
+- **Indicator Lifecycle Tracking** - First seen, last seen, and revocation tracking
 
 ## Quick Start
 
 ### Prerequisites
 
-- Python 3.7+
+- Python 3.10 or higher
 - pip
 
 ### Installation
 
-1. Clone the repository:
+1. Clone or download the repository:
 ```bash
-git clone https://github.com/ThatIanMcShane/stix2edl.git
 cd stix2edl
 ```
 
@@ -59,7 +65,7 @@ This will:
 3. Configure your TAXII collections:
 ```bash
 cp config.yaml.example config.yaml
-# Edit config.yaml with your TAXII server details
+# Edit config.yaml with your TAXII server details and auth credentials
 ```
 
 4. Run the application:
@@ -114,52 +120,39 @@ The web dashboard provides:
 - **Refresh Actions** - Update all or individual collections
 - **Export Options** - Download CSV or view EDL
 
-### EDL Endpoints
+### EDL API Endpoints
+
+STIX2EDL provides External Dynamic List (EDL) feeds for firewall consumption:
 
 #### All Indicators
-```
-http://localhost:5000/api/edl/all
-```
-Returns all indicators from all collections in EDL format.
-
-#### Per-Collection
-```
-http://localhost:5000/api/edl/collection/0
-http://localhost:5000/api/edl/collection/1
-```
-Returns indicators from a specific collection (by index).
-
-### API Endpoints
-
-#### Status
 ```bash
-GET /api/status
+GET /api/edl/all
 ```
-Returns overall system status and indicator counts.
+Returns all indicators from all enabled collections in EDL format (one indicator per line).
 
-#### Collections
-```bash
-GET /api/collections
+**Example**:
 ```
-Lists all configured collections with metadata.
+http://your-server:5000/api/edl/all
+```
 
-#### Refresh
+#### Per-Collection Feeds
 ```bash
-POST /api/refresh
+GET /api/edl/collection/<index>
 ```
-Fetches latest indicators from all collections.
+Returns indicators from a specific collection by index (starting at 0).
 
-```bash
-POST /api/collection/0/refresh
+**Examples**:
 ```
-Refreshes a specific collection.
+http://your-server:5000/api/edl/collection/0
+http://your-server:5000/api/edl/collection/1
+```
 
-#### Export
-```bash
-GET /api/indicators/csv
-GET /api/collection/0/csv
-```
-Download indicators in CSV format.
+**Supported Indicator Types**:
+- IPv4 addresses
+- IPv6 addresses
+- Domain names
+- URLs
+- File hashes (MD5, SHA-1, SHA-256)
 
 ## Firewall Integration
 
@@ -198,12 +191,14 @@ External Dynamic List format is a simple text file with one indicator per line:
 malicious.com
 evil-site.net
 http://phishing.example.com/login
+5d41402abc4b2a76b9719d911017c592
 ```
 
 **Supported Indicator Types:**
 - IP addresses (IPv4/IPv6)
 - Domain names
 - URLs
+- File hashes (MD5, SHA-1, SHA-256)
 
 ## Architecture
 
@@ -221,19 +216,6 @@ http://phishing.example.com/login
 3. Indicators stored in SQLite with deduplication
 4. Web UI and API serve indicators in various formats
 
-### Database Schema
-
-**indicators** - Threat indicators
-- type, value, description, confidence
-- collection_index (tracks source collection)
-- Unique constraint on (type, value)
-
-**collections** - Collection metadata
-- name, url, status, last_updated
-
-**system_meta** - System information
-- last_updated timestamp
-
 ## Development
 
 ### Project Structure
@@ -244,8 +226,9 @@ stix2edl/
 ””€”€ config.yaml               # Configuration
 ””€”€ requirements.txt          # Python dependencies
 ””€”€ templates/
-”‚   ””€”€ index.html           # Dashboard
-”‚   ”””€”€ initializing.html    # First-run page
+   â”œâ”€â”€ index.html            # Dashboard
+   â”œâ”€â”€ settings.html         # Settings page
+   â””â”€â”€ login.html            # Login page
 ””€”€ indicators.db            # SQLite database (created on first run)
 ”””€”€ README.md
 ```
@@ -301,35 +284,43 @@ python3 taxii_threat_intel.py
 
 ## Security Considerations
 
-**WARNING: This is a proof of concept tool and should NOT be used in production environments.**
+**WARNING: This is a proof of concept tool. Review security implications before deployment.**
 
-### Authentication
+### Authentication (v1.1)
 
-- **NOTE**: TAXII credentials are stored in `config.yaml` in plain text
-- While this is not good security practice, the risk can be mitigated:
-  - Use a dedicated credential that is not used anywhere else
-  - This tool only retrieves data from TAXII servers (read-only operations)
-  - If an attacker has local file access to poison this configuration, you likely have larger security concerns
-- For production or higher-security environments, consider:
+- **Password Protection**: Web UI protected by session-based authentication
+- **Login Password**: Stored in database (system_meta table)
+- **Session Timeout**: Configurable (default 72 hours)
+- **First-Time Setup**: Set password on first access
+
+### TAXII Credentials
+
+- **Storage**: TAXII credentials stored in `config.yaml` in plain text
+- **Mitigation**:
+  - Use dedicated credentials not used elsewhere
+  - Read-only TAXII access
+  - Restrict file system access
+- **Production Alternatives**:
   - Environment variables
-  - Secrets management systems (HashiCorp Vault, AWS Secrets Manager, etc.)
-  - Encrypted configuration files
-  - Service accounts with minimal privileges
+  - Secrets management (HashiCorp Vault, AWS Secrets Manager)
+  - Encrypted configuration
 
-### Network Security
+### Deployment Security
 
-- Run behind reverse proxy (nginx/apache) with HTTPS
-- Restrict EDL endpoint access to firewall IPs only
-- Implement authentication on web interface
-- Do not expose to the public internet
+**Recommended setup**:
+```bash
+# Allow only firewall to access EDL feeds
+iptables -A INPUT -p tcp --dport 5000 -s <firewall-ip> -j ACCEPT
+iptables -A INPUT -p tcp --dport 5000 -s 127.0.0.1 -j ACCEPT
+iptables -A INPUT -p tcp --dport 5000 -j DROP
 
-### Rate Limiting
-
-Consider implementing rate limits on refresh endpoints to prevent abuse.
+# Or use SSH tunnel for admin access
+ssh -L 5000:localhost:5000 user@server
+```
 
 ### Use at Your Own Risk
 
-This software is provided as-is for testing and proof of concept purposes only. The author assumes no liability for security issues, data breaches, or other damages resulting from the use of this software.
+This software is provided as-is for testing and proof of concept purposes. The author assumes no liability for security issues, data breaches, or damages resulting from use of this software.
 
 ## Contributing
 
@@ -351,11 +342,13 @@ MIT License - see LICENSE file for details
 
 ## Version History
 
-- **v1.1** - Settings page, auto-refresh persistence, full export
-  - Web-based configuration management
-  - Global credentials
-  - Auto-refresh persists across restarts
-  - Full CSV export (active + revoked indicators)
+- **v1.1** - Security, UI improvements, and health monitoring
+  - Password-protected web UI with session management
+  - Three-state health indicators (Green/Amber/Red)
+  - Auto-refresh scheduling with persistence
+  - Settings page for web-based configuration
+  - Indicator lifecycle tracking (first seen, last seen)
+  - Collection-level refresh control
   
 - **v1.0** - Initial release
   - TAXII 2.1 support

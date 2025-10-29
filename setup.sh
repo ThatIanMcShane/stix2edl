@@ -1,16 +1,16 @@
 #!/bin/bash
 
-# TAXII Threat Intelligence Collector - Setup and Run Script for macOS
+# STIX2EDL v1.1 - Setup Script for Linux/macOS
 
 echo "================================================"
-echo "TAXII Threat Intelligence Collector Setup"
+echo "STIX2EDL v1.1 - Setup"
 echo "================================================"
 echo ""
 
 # Check if Python 3 is installed
 if ! command -v python3 &> /dev/null; then
     echo "❌ Python 3 is not installed."
-    echo "Please install Python 3 from https://www.python.org/downloads/"
+    echo "Please install Python 3.10 or higher"
     exit 1
 fi
 
@@ -29,7 +29,7 @@ echo ""
 
 # Install dependencies
 echo "Installing Python dependencies..."
-pip3 install -r requirements.txt --user
+pip3 install -r requirements.txt
 
 if [ $? -eq 0 ]; then
     echo "✅ Dependencies installed successfully"
@@ -44,23 +44,22 @@ echo "Setup Complete!"
 echo "================================================"
 echo ""
 echo "Next steps:"
-echo "1. Edit config.yaml with your TAXII collection URL"
+echo "1. Create or edit config.yaml with your TAXII collections"
 echo "2. Run: python3 taxii_threat_intel.py"
+echo "3. Access the web UI at http://localhost:5000"
+echo "4. Set your login password on first access"
 echo ""
-echo "Configuration Format:"
-echo "  collection_url: https://server.com/taxii2/collections/{id}/objects/"
+echo "Example config.yaml:"
+echo "---"
+echo "username: your-taxii-username"
+echo "password: your-taxii-password"
+echo "max_pages: 50"
+echo "collections:"
+echo "  - name: My Collection"
+echo "    url: https://server.com/taxii2/collections/{id}/objects/"
+echo "    enabled: true"
 echo ""
-echo "Authentication Options:"
-echo "  Bearer Token:"
-echo "    auth_type: bearer"
-echo "    auth_token: your-token"
-echo ""
-echo "  Basic HTTP Auth:"
-echo "    auth_type: basic"
-echo "    username: your-username"
-echo "    password: your-password"
-echo ""
-echo "For testing with MITRE ATT&CK Enterprise collection:"
-echo "  collection_url: https://cti-taxii.mitre.org/stix/collections/95ecc380-afe9-11e4-9b6c-751b66dd541e/objects/"
-echo "  auth_type: none"
+echo "EDL Feeds (for firewalls):"
+echo "  All indicators: http://localhost:5000/api/edl/all"
+echo "  Per collection: http://localhost:5000/api/edl/collection/0"
 echo ""

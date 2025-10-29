@@ -32,6 +32,9 @@
             border-radius: 8px;
             margin-bottom: 15px;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
         }
         
         header h1 {
@@ -44,6 +47,26 @@
             font-weight: normal;
             opacity: 0.8;
             margin-left: 8px;
+        }
+        
+        .header-actions {
+            display: flex;
+            gap: 10px;
+        }
+        
+        .btn-logout {
+            background: rgba(255, 255, 255, 0.2);
+            color: white;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            padding: 8px 16px;
+            border-radius: 6px;
+            text-decoration: none;
+            font-size: 0.9em;
+            transition: background 0.2s;
+        }
+        
+        .btn-logout:hover {
+            background: rgba(255, 255, 255, 0.3);
         }
         
         .status-card {
@@ -165,6 +188,29 @@
             min-height: 140px;
             box-shadow: 0 1px 3px rgba(0,0,0,0.1);
             transition: box-shadow 0.2s ease;
+            position: relative;
+        }
+        
+        .collection-card.processing {
+            background: linear-gradient(135deg, #f7fafc 0%, #edf2f7 100%);
+            border: 2px solid #667eea;
+        }
+        
+        .collection-card.processing::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: linear-gradient(90deg, #667eea, #764ba2, #667eea);
+            background-size: 200% 100%;
+            animation: shimmer 2s infinite;
+        }
+        
+        @keyframes shimmer {
+            0% { background-position: 200% 0; }
+            100% { background-position: -200% 0; }
         }
         
         .collection-card:hover {
@@ -262,6 +308,47 @@
             background: #bee3f8;
             border-color: #4299e1;
             color: #2c5282;
+        }
+        
+        /* Initialization Banner */
+        .init-banner {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 15px 20px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
+        }
+        
+        .init-banner-content {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+        
+        .init-spinner {
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            border-top: 3px solid white;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            animation: spin 1s linear infinite;
+            flex-shrink: 0;
+        }
+        
+        .init-message {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+        
+        .init-message strong {
+            font-size: 1.05em;
+        }
+        
+        .init-message span {
+            font-size: 0.95em;
+            opacity: 0.95;
         }
         
         .loading {
@@ -473,7 +560,21 @@
     <div class="container">
         <header>
             <h1>STIX2EDL<span class="version">v1.1</span></h1>
+            <div class="header-actions">
+                <a href="/logout" class="btn-logout">Logout</a>
+            </div>
         </header>
+        
+        <!-- Initialization Banner -->
+        <div id="initBanner" class="init-banner" style="display: none;">
+            <div class="init-banner-content">
+                <div class="init-spinner"></div>
+                <div class="init-message">
+                    <strong>Initial setup in progress</strong>
+                    <span id="initCurrentCollection"></span>
+                </div>
+            </div>
+        </div>
         
         <div id="alertBox" class="alert"></div>
         <div id="loading" class="loading">
@@ -592,6 +693,7 @@
         // Load status and collections on page load
         document.addEventListener('DOMContentLoaded', function() {
             // Initial load
+            checkInitialization();  // Check if initializing and start polling if needed
             loadStatus();
             loadCollections();
             loadStats();
@@ -655,6 +757,52 @@
                 })
                 .catch(error => {
                     console.error('Error loading stats:', error);
+                });
+        }
+        
+        let initCheckInterval = null;
+        
+        function checkInitialization() {
+            fetch('/api/init-status')
+                .then(response => response.json())
+                .then(initState => {
+                    const banner = document.getElementById('initBanner');
+                    const currentCollectionEl = document.getElementById('initCurrentCollection');
+                    
+                    if (initState.status === 'initializing') {
+                        // Show banner
+                        banner.style.display = 'block';
+                        
+                        // Update current collection message
+                        if (initState.current_collection) {
+                            currentCollectionEl.textContent = `: Currently processing ${initState.current_collection}`;
+                        } else {
+                            currentCollectionEl.textContent = '';
+                        }
+                        
+                        // Reload collections to update their status
+                        loadCollections();
+                        
+                        // Continue polling if not already
+                        if (!initCheckInterval) {
+                            initCheckInterval = setInterval(checkInitialization, 3000);
+                        }
+                    } else {
+                        // Hide banner and stop polling
+                        banner.style.display = 'none';
+                        if (initCheckInterval) {
+                            clearInterval(initCheckInterval);
+                            initCheckInterval = null;
+                        }
+                        
+                        // Reload everything once initialization is complete
+                        loadStatus();
+                        loadCollections();
+                        loadStats();
+                    }
+                })
+                .catch(error => {
+                    console.error('Error checking initialization:', error);
                 });
         }
         
@@ -722,41 +870,66 @@
         }
         
         function loadCollections() {
-            fetch('/api/collections')
-                .then(response => response.json())
-                .then(data => {
-                    const container = document.getElementById('collections');
-                    container.innerHTML = '';
+            // Fetch both collections and init state
+            Promise.all([
+                fetch('/api/collections').then(r => r.json()),
+                fetch('/api/init-status').then(r => r.json())
+            ])
+            .then(([collectionsData, initState]) => {
+                const container = document.getElementById('collections');
+                container.innerHTML = '';
+                
+                if (collectionsData.collections && collectionsData.collections.length > 0) {
+                    // Filter out disabled collections
+                    const enabledCollections = collectionsData.collections.filter(c => c.enabled !== false);
                     
-                    if (data.collections && data.collections.length > 0) {
-                        // Filter out disabled collections
-                        const enabledCollections = data.collections.filter(c => c.enabled !== false);
-                        
-                        // Update active count
-                        document.getElementById('collectionsActive').textContent = enabledCollections.length;
-                        
-                        if (enabledCollections.length > 0) {
-                            enabledCollections.forEach(collection => {
-                                container.appendChild(createCollectionCard(collection));
-                            });
-                        } else {
-                            container.innerHTML = '<p>No enabled collections.</p>';
-                        }
+                    // Update active count
+                    document.getElementById('collectionsActive').textContent = enabledCollections.length;
+                    
+                    if (enabledCollections.length > 0) {
+                        enabledCollections.forEach(collection => {
+                            container.appendChild(createCollectionCard(collection, initState));
+                        });
                     } else {
-                        document.getElementById('collectionsActive').textContent = '0';
-                        container.innerHTML = '<p>No collections configured.</p>';
+                        container.innerHTML = '<p>No enabled collections.</p>';
                     }
-                })
-                .catch(error => {
-                    console.error('Error loading collections:', error);
-                    showAlert('Error loading collections', 'error');
-                });
+                } else {
+                    document.getElementById('collectionsActive').textContent = '0';
+                    container.innerHTML = '<p>No collections configured.</p>';
+                }
+            })
+            .catch(error => {
+                console.error('Error loading collections:', error);
+                showAlert('Error loading collections', 'error');
+            });
         }
         
-        function createCollectionCard(collection) {
+        function createCollectionCard(collection, initState) {
             const card = document.createElement('div');
             card.className = 'collection-card';
             card.id = `collection-${collection.index}`;
+            
+            // Check if this collection is being initialized (only during initial startup)
+            let isProcessing = false;
+            let isPending = false;
+            let initError = '';
+            
+            // Only show init states if we're actually initializing
+            if (initState && initState.status === 'initializing' && initState.collection_states) {
+                const collState = initState.collection_states[collection.index];
+                if (collState) {
+                    isProcessing = collState.status === 'processing';
+                    isPending = collState.status === 'pending';
+                    if (collState.status === 'error') {
+                        initError = collState.error;
+                    }
+                }
+            }
+            
+            // Add processing class if actively being initialized
+            if (isProcessing) {
+                card.className += ' processing';
+            }
             
             // Health indicator based on status
             let healthSymbol = '●';
@@ -764,21 +937,62 @@
             let healthText = 'Unknown';
             let healthTooltip = '';
             
-            if (collection.status === 'success') {
-                healthSymbol = '●';
-                healthColor = '#48bb78';
-                healthText = 'Healthy';
-                healthTooltip = 'Collection refreshed successfully';
-            } else if (collection.status === 'failed') {
+            // Initialization states (during startup only)
+            if (isProcessing) {
+                healthSymbol = '⟳';
+                healthColor = '#667eea';
+                healthText = 'Processing...';
+                healthTooltip = 'Currently fetching indicators';
+            } else if (isPending) {
+                healthSymbol = '○';
+                healthColor = '#cbd5e0';
+                healthText = 'Pending';
+                healthTooltip = 'Waiting to be processed';
+            } else if (initError) {
                 healthSymbol = '●';
                 healthColor = '#f56565';
-                healthText = 'Refresh failed';
-                healthTooltip = collection.error || 'Failed to refresh collection';
-            } else if (collection.status === 'unknown' || collection.status === 'not loaded') {
-                healthSymbol = '●';
-                healthColor = '#a0aec0';
-                healthText = 'Not loaded';
-                healthTooltip = 'Collection has not been loaded yet';
+                healthText = 'Init failed';
+                healthTooltip = initError;
+            } else {
+                // Operational health states (after initialization)
+                // GREEN = Everything is fine, last update worked
+                // AMBER = It worked before, but last update failed
+                // RED = Never worked OR hasn't succeeded in 2+ days
+                
+                const now = new Date();
+                const lastSuccess = collection.last_successful_update ? new Date(collection.last_successful_update) : null;
+                const hoursSinceSuccess = lastSuccess ? (now - lastSuccess) / (1000 * 60 * 60) : null;
+                const twoDaysInHours = 48;
+                
+                if (collection.status === 'success') {
+                    // GREEN: Last update was successful
+                    healthSymbol = '●';
+                    healthColor = '#48bb78';
+                    healthText = 'Healthy';
+                    healthTooltip = 'Collection is working correctly';
+                } else if (collection.ever_successful && hoursSinceSuccess && hoursSinceSuccess < twoDaysInHours) {
+                    // AMBER: Worked before, failed recently, but within 2 days
+                    healthSymbol = '●';
+                    healthColor = '#ed8936';  // Amber/Orange
+                    healthText = 'Warning';
+                    healthTooltip = `Last update failed: ${collection.error || 'Unknown error'}. Last successful: ${formatAge(collection.last_successful_update)}`;
+                } else if (!collection.ever_successful || (hoursSinceSuccess && hoursSinceSuccess >= twoDaysInHours)) {
+                    // RED: Never worked OR hasn't succeeded in 2+ days
+                    healthSymbol = '●';
+                    healthColor = '#f56565';
+                    healthText = 'Critical';
+                    if (!collection.ever_successful) {
+                        healthTooltip = 'Collection has never successfully updated. Check configuration.';
+                    } else {
+                        healthTooltip = `No successful update in over 2 days. Last success: ${formatAge(collection.last_successful_update)}`;
+                    }
+                } else {
+                    // Unknown/Not loaded
+                    healthSymbol = '●';
+                    healthColor = '#a0aec0';
+                    healthText = 'Unknown';
+                    healthTooltip = 'Collection has not been loaded yet';
+                }
             }
             
             card.innerHTML = `
