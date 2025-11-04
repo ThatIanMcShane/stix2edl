@@ -1,0 +1,1415 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>STIX2EDL</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: #f8f9fa;
+            color: #2d3748;
+            line-height: 1.4;
+            font-size: 14px;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 15px;
+        }
+        
+        header {
+            background: #4a5568;
+            color: white;
+            padding: 15px 20px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        header h1 {
+            font-size: 1.5em;
+            margin: 0;
+        }
+        
+        header h1 .version {
+            font-size: 0.6em;
+            font-weight: normal;
+            opacity: 0.8;
+            margin-left: 8px;
+        }
+        
+        .header-actions {
+            display: flex;
+            gap: 10px;
+        }
+        
+        .btn-logout {
+            background: rgba(255, 255, 255, 0.2);
+            color: white;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            padding: 8px 16px;
+            border-radius: 6px;
+            text-decoration: none;
+            font-size: 0.9em;
+            transition: background 0.2s;
+        }
+        
+        .btn-logout:hover {
+            background: rgba(255, 255, 255, 0.3);
+        }
+        
+        .status-card {
+            background: white;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 15px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        
+        .status-card h2 {
+            color: #4a5568;
+            margin-bottom: 12px;
+            font-size: 1.2em;
+        }
+        
+        .status-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 10px;
+            margin-bottom: 12px;
+        }
+        
+        .status-item {
+            background: #edf2f7;
+            padding: 10px;
+            border-radius: 6px;
+            border-left: 3px solid #5a67d8;
+        }
+        
+        .status-item label {
+            font-size: 0.75em;
+            color: #718096;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            display: block;
+            margin-bottom: 3px;
+        }
+        
+        .status-item .value {
+            font-size: 1.3em;
+            font-weight: 600;
+            color: #2d3748;
+        }
+        
+        .health-indicator {
+            font-size: 1.5em;
+            margin-right: 8px;
+            display: inline-block;
+            line-height: 1;
+        }
+        
+        .health-indicator.healthy {
+            color: #48bb78;
+        }
+        
+        .health-indicator.degraded {
+            color: #ecc94b;
+        }
+        
+        .health-indicator.unhealthy {
+            color: #f56565;
+        }
+        
+        #healthText {
+            font-size: 0.75em;
+            vertical-align: middle;
+        }
+        
+        .actions {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-top: 12px;
+        }
+        
+        .btn {
+            padding: 8px 16px;
+            border: 1px solid #cbd5e0;
+            background: #ffffff;
+            cursor: pointer;
+            font-size: 0.85em;
+            font-weight: 500;
+            transition: all 0.2s ease;
+            text-decoration: none;
+            display: inline-block;
+            color: #4a5568;
+            border-radius: 6px;
+        }
+        
+        .btn:hover {
+            background: #edf2f7;
+            border-color: #a0aec0;
+        }
+        
+        .btn-primary {
+            background: #5a67d8;
+            color: white;
+            border-color: #5a67d8;
+        }
+        
+        .btn-primary:hover {
+            background: #4c51bf;
+            border-color: #4c51bf;
+        }
+        
+        .collections {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 10px;
+        }
+        
+        .collection-card {
+            background: white;
+            border-radius: 8px;
+            padding: 12px;
+            display: flex;
+            flex-direction: column;
+            min-height: 140px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            transition: box-shadow 0.2s ease;
+            position: relative;
+        }
+        
+        .collection-card.processing {
+            background: linear-gradient(135deg, #f7fafc 0%, #edf2f7 100%);
+            border: 2px solid #667eea;
+        }
+        
+        .collection-card.processing::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: linear-gradient(90deg, #667eea, #764ba2, #667eea);
+            background-size: 200% 100%;
+            animation: shimmer 2s infinite;
+        }
+        
+        @keyframes shimmer {
+            0% { background-position: 200% 0; }
+            100% { background-position: -200% 0; }
+        }
+        
+        .collection-card:hover {
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        
+        .collection-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 8px;
+            gap: 8px;
+        }
+        
+        .collection-name {
+            font-size: 0.95em;
+            font-weight: 600;
+            color: #2d3748;
+            flex: 1;
+            line-height: 1.3;
+        }
+        
+        .collection-stats {
+            display: flex;
+            justify-content: space-between;
+            margin: 8px 0;
+            padding: 8px;
+            background: #edf2f7;
+            border-radius: 6px;
+            font-size: 0.85em;
+        }
+        
+        .stat-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            flex: 1;
+        }
+        
+        .stat-value {
+            font-weight: 700;
+            font-size: 1.4em;
+            color: #2d3748;
+        }
+        
+        .stat-label {
+            font-size: 0.75em;
+            color: #718096;
+            margin-top: 2px;
+        }
+        
+        .collection-time {
+            font-size: 0.75em;
+            color: #718096;
+            margin-bottom: 8px;
+        }
+        
+        .collection-actions {
+            display: flex;
+            gap: 6px;
+            margin-top: auto;
+        }
+        
+        .btn-small {
+            padding: 6px 10px;
+            font-size: 0.75em;
+            flex: 1;
+        }
+        
+        .alert {
+            padding: 10px 15px;
+            border-radius: 6px;
+            margin-bottom: 15px;
+            display: none;
+            border-left: 3px solid;
+        }
+        
+        .alert.show {
+            display: block;
+        }
+        
+        .alert-success {
+            background: #c6f6d5;
+            border-color: #48bb78;
+            color: #22543d;
+        }
+        
+        .alert-error {
+            background: #fed7d7;
+            border-color: #f56565;
+            color: #742a2a;
+        }
+        
+        .alert-info {
+            background: #bee3f8;
+            border-color: #4299e1;
+            color: #2c5282;
+        }
+        
+        /* Initialization Banner */
+        .init-banner {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 15px 20px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
+        }
+        
+        .init-banner-content {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+        
+        .init-spinner {
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            border-top: 3px solid white;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            animation: spin 1s linear infinite;
+            flex-shrink: 0;
+        }
+        
+        .init-message {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+        
+        .init-message strong {
+            font-size: 1.05em;
+        }
+        
+        .init-message span {
+            font-size: 0.95em;
+            opacity: 0.95;
+        }
+        
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 15px;
+        }
+        
+        .loading.show {
+            display: block;
+        }
+        
+        .spinner {
+            border: 3px solid #edf2f7;
+            border-top: 3px solid #5a67d8;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 12px;
+            margin-bottom: 15px;
+        }
+        
+        .stat-box {
+            background: #edf2f7;
+            padding: 15px;
+            border-radius: 6px;
+            text-align: center;
+        }
+        
+        .stat-value {
+            font-size: 2em;
+            font-weight: bold;
+            color: #2d3748;
+            margin-bottom: 5px;
+        }
+        
+        .stat-label {
+            font-size: 0.85em;
+            color: #718096;
+        }
+        
+        .stats-today {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 15px;
+            padding: 12px;
+            background: #f8f9fa;
+            border-radius: 6px;
+            font-size: 0.9em;
+        }
+        
+        .stat-today-label {
+            font-weight: 600;
+            color: #4a5568;
+        }
+        
+        .stat-today-added {
+            color: #48bb78;
+            font-weight: 500;
+        }
+        
+        .stat-today-removed {
+            color: #f56565;
+            font-weight: 500;
+        }
+        
+        .auto-refresh-section {
+            margin: 15px 0;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 6px;
+        }
+        
+        .auto-refresh-status {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 10px;
+            font-size: 0.9em;
+        }
+        
+        .auto-refresh-label {
+            font-weight: 600;
+            color: #4a5568;
+        }
+        
+        .auto-refresh-value {
+            padding: 3px 10px;
+            border-radius: 4px;
+            font-size: 0.85em;
+            font-weight: 500;
+        }
+        
+        .auto-refresh-value.enabled {
+            background: #c6f6d5;
+            color: #22543d;
+        }
+        
+        .auto-refresh-value.disabled {
+            background: #e2e8f0;
+            color: #4a5568;
+        }
+        
+        .auto-refresh-next {
+            color: #718096;
+            font-size: 0.85em;
+        }
+        
+        .auto-refresh-controls {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        
+        .btn-small {
+            padding: 6px 12px;
+            font-size: 0.85em;
+        }
+        
+        .interval-select {
+            padding: 6px 10px;
+            border: 1px solid #cbd5e0;
+            border-radius: 4px;
+            background: white;
+            font-size: 0.85em;
+            color: #2d3748;
+            cursor: pointer;
+        }
+        
+        .interval-select:disabled {
+            background: #edf2f7;
+            cursor: not-allowed;
+        }
+        
+        .footer {
+            text-align: center;
+            padding: 20px;
+            color: #718096;
+            border-top: 1px solid #e2e8f0;
+            margin-top: 15px;
+            font-size: 0.85em;
+        }
+        
+        .footer-content {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        
+        .footer-links {
+            margin-top: 10px;
+        }
+        
+        .footer-links a {
+            color: #5a67d8;
+            text-decoration: none;
+            margin: 0 10px;
+        }
+        
+        .footer-links a:hover {
+            text-decoration: underline;
+        }
+        
+        @media (max-width: 768px) {
+            .container {
+                padding: 10px;
+            }
+            
+            header {
+                padding: 12px 15px;
+            }
+            
+            header h1 {
+                font-size: 1.2em;
+            }
+            
+            .status-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .collections {
+                grid-template-columns: 1fr;
+            }
+            
+            .collection-actions {
+                flex-direction: column;
+            }
+            
+            .btn {
+                width: 100%;
+                text-align: center;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>STIX2EDL<span class="version">v1.1</span></h1>
+            <div class="header-actions">
+                <a href="/logout" class="btn-logout">Logout</a>
+            </div>
+        </header>
+        
+        <!-- Initialization Banner -->
+        <div id="initBanner" class="init-banner" style="display: none;">
+            <div class="init-banner-content">
+                <div class="init-spinner"></div>
+                <div class="init-message">
+                    <strong>Initial setup in progress</strong>
+                    <span id="initCurrentCollection"></span>
+                </div>
+            </div>
+        </div>
+        
+        <div id="alertBox" class="alert"></div>
+        <div id="loading" class="loading">
+            <div class="spinner"></div>
+            <p>Processing...</p>
+        </div>
+        
+        <div class="status-card">
+            <h2>Status</h2>
+            <div class="status-grid">
+                <div class="status-item">
+                    <label>Health</label>
+                    <div class="value" id="healthStatus">
+                        <span class="health-indicator" id="healthIndicator">●</span>
+                        <span id="healthText">Unknown</span>
+                    </div>
+                </div>
+                <div class="status-item">
+                    <label>Total Indicators</label>
+                    <div class="value" id="totalIndicators">-</div>
+                </div>
+                <div class="status-item">
+                    <label>Last Updated</label>
+                    <div class="value" id="lastUpdated" style="font-size: 0.85em;">-</div>
+                </div>
+                <div class="status-item">
+                    <label>Collections Active</label>
+                    <div class="value" id="collectionsActive">-</div>
+                </div>
+            </div>
+            
+            <div class="auto-refresh-section">
+                <div class="auto-refresh-status">
+                    <span class="auto-refresh-label">Auto-Refresh:</span>
+                    <span id="autoRefreshStatus" class="auto-refresh-value">Disabled</span>
+                    <span id="nextRefreshTime" class="auto-refresh-next"></span>
+                </div>
+                <div class="auto-refresh-controls">
+                    <button id="autoRefreshToggle" class="btn btn-small" onclick="toggleAutoRefresh()">Enable Auto-Refresh</button>
+                    <div style="display: inline-flex; align-items: center; gap: 8px;">
+                        <span style="color: #a0aec0;">Every</span>
+                        <input 
+                            type="text" 
+                            id="autoRefreshInterval" 
+                            class="interval-input" 
+                            value="360"
+                            maxlength="4"
+                            pattern="[0-9]*"
+                            placeholder="360"
+                            style="width: 60px; padding: 6px 10px; border: 1px solid #4a5568; background: #2d3748; color: #fff; border-radius: 4px; text-align: center;"
+                        />
+                        <span style="color: #a0aec0;">minutes</span>
+                        <span id="intervalError" style="color: #f56565; font-size: 0.9em; display: none; margin-left: 8px;"></span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="actions">
+                <button class="btn btn-primary" onclick="refreshAll()">Refresh All</button>
+                <a href="/api/indicators/csv" class="btn">Download All CSV</a>
+                <a href="/api/edl/all" class="btn" target="_blank">View Entire EDL</a>
+            </div>
+        </div>
+        
+        <div class="status-card">
+            <h2>Statistics</h2>
+            <div class="stats-grid">
+                <div class="stat-box">
+                    <div class="stat-value" id="statIPs">-</div>
+                    <div class="stat-label">IP Addresses</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-value" id="statDomains">-</div>
+                    <div class="stat-label">Domains</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-value" id="statURLs">-</div>
+                    <div class="stat-label">URLs</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-value" id="statRevoked">-</div>
+                    <div class="stat-label">Revoked</div>
+                </div>
+            </div>
+            <div class="stats-today">
+                <span class="stat-today-label">Today:</span>
+                <span class="stat-today-added" id="todayAdded">+0 added</span>
+                <span class="stat-today-removed" id="todayRemoved">-0 removed</span>
+            </div>
+        </div>
+        
+        <div class="status-card">
+            <h2>Collections</h2>
+            <div id="collections" class="collections">
+                <!-- Collections will be loaded here -->
+            </div>
+        </div>
+        
+        <footer class="footer">
+            <div class="footer-content">
+                <strong>STIX2EDL v1.1</strong><br>
+                Lovingly vibecoded by <a href="https://github.com/ThatIanMcShane" target="_blank">Ian McShane</a><br>
+                Open Source under MIT License<br>
+                Convert TAXII threat intelligence feeds to firewall External Dynamic Lists
+                <div class="footer-links">
+                    <a href="https://github.com/ThatIanMcShane/stix2edl" target="_blank">GitHub</a>
+                    <a href="https://github.com/ThatIanMcShane/stix2edl/blob/main/LICENSE" target="_blank">License</a>
+                    <a href="https://github.com/ThatIanMcShane/stix2edl/blob/main/README.md" target="_blank">Documentation</a>
+                    <a href="/settings" style="color: #4a5568;">Settings</a>
+                </div>
+            </div>
+        </footer>
+    </div>
+    
+    <script>
+        // Load status and collections on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            // Initial load
+            checkInitialization();  // Check if initializing and start polling if needed
+            loadStatus();
+            loadCollections();
+            loadStats();
+            loadAutoRefreshStatus();
+            
+            // Periodic updates
+            setInterval(loadStatus, 30000);           // Update status every 30 seconds
+            setInterval(loadCollections, 60000);      // Update collections every 60 seconds
+            setInterval(loadStats, 60000);            // Update stats every 60 seconds
+            setInterval(loadAutoRefreshStatus, 30000); // Update auto-refresh status every 30 seconds
+            
+            // Add input validation for auto-refresh interval
+            const intervalInput = document.getElementById('autoRefreshInterval');
+            if (intervalInput) {
+                // Only allow digits
+                intervalInput.addEventListener('input', function(e) {
+                    // Remove any non-digit characters
+                    this.value = this.value.replace(/[^0-9]/g, '');
+                    
+                    // Limit to 4 digits
+                    if (this.value.length > 4) {
+                        this.value = this.value.slice(0, 4);
+                    }
+                });
+                
+                // Validate on blur
+                intervalInput.addEventListener('blur', function(e) {
+                    const validation = validateInterval(this.value);
+                    if (!validation.valid && this.value !== '') {
+                        showIntervalError(validation.error);
+                    }
+                });
+                
+                // Clear error on focus
+                intervalInput.addEventListener('focus', function(e) {
+                    document.getElementById('intervalError').style.display = 'none';
+                });
+            }
+        });
+        
+        function loadStats() {
+            fetch('/api/stats')
+                .then(response => response.json())
+                .then(data => {
+                    // By type
+                    const ipCount = (data.by_type?.ip || 0) + 
+                                   (data.by_type?.ipv4 || 0) + 
+                                   (data.by_type?.ipv6 || 0);
+                    document.getElementById('statIPs').textContent = ipCount;
+                    document.getElementById('statDomains').textContent = data.by_type?.domain || 0;
+                    document.getElementById('statURLs').textContent = data.by_type?.url || 0;
+                    
+                    // Revoked
+                    document.getElementById('statRevoked').textContent = data.total_revoked || 0;
+                    
+                    // Today's changes
+                    const addedText = data.today_added > 0 ? `+${data.today_added} added` : '0 added';
+                    const removedText = data.today_removed > 0 ? `-${data.today_removed} removed` : '0 removed';
+                    document.getElementById('todayAdded').textContent = addedText;
+                    document.getElementById('todayRemoved').textContent = removedText;
+                })
+                .catch(error => {
+                    console.error('Error loading stats:', error);
+                });
+        }
+        
+        let initCheckInterval = null;
+        
+        function checkInitialization() {
+            fetch('/api/init-status')
+                .then(response => response.json())
+                .then(initState => {
+                    const banner = document.getElementById('initBanner');
+                    const currentCollectionEl = document.getElementById('initCurrentCollection');
+                    
+                    if (initState.status === 'initializing') {
+                        // Show banner
+                        banner.style.display = 'block';
+                        
+                        // Update current collection message
+                        if (initState.current_collection) {
+                            currentCollectionEl.textContent = `: Currently processing ${initState.current_collection}`;
+                        } else {
+                            currentCollectionEl.textContent = '';
+                        }
+                        
+                        // Reload collections to update their status
+                        loadCollections();
+                        
+                        // Continue polling if not already
+                        if (!initCheckInterval) {
+                            initCheckInterval = setInterval(checkInitialization, 3000);
+                        }
+                    } else {
+                        // Hide banner and stop polling
+                        banner.style.display = 'none';
+                        if (initCheckInterval) {
+                            clearInterval(initCheckInterval);
+                            initCheckInterval = null;
+                        }
+                        
+                        // Reload everything once initialization is complete
+                        loadStatus();
+                        loadCollections();
+                        loadStats();
+                    }
+                })
+                .catch(error => {
+                    console.error('Error checking initialization:', error);
+                });
+        }
+        
+        function loadStatus() {
+            fetch('/api/status')
+                .then(response => response.json())
+                .then(data => {
+                    // Update indicators count
+                    document.getElementById('totalIndicators').textContent = data.indicator_count || 0;
+                    
+                    // Check if data changed (for triggering other updates)
+                    const prevLastUpdated = window.lastUpdatedTimestamp;
+                    window.lastUpdatedTimestamp = data.last_updated;
+                    
+                    // If data changed, refresh collections and stats too
+                    if (prevLastUpdated && prevLastUpdated !== data.last_updated) {
+                        console.log('Data updated, refreshing collections and stats');
+                        loadCollections();
+                        loadStats();
+                    }
+                    
+                    // Update health status
+                    const healthIndicator = document.getElementById('healthIndicator');
+                    const healthText = document.getElementById('healthText');
+                    
+                    if (data.is_stale) {
+                        // Unhealthy - refresh failed
+                        healthIndicator.className = 'health-indicator unhealthy';
+                        healthText.textContent = 'Refresh failed';
+                        healthIndicator.title = data.refresh_error || 'Last refresh failed';
+                        healthText.title = data.refresh_error || 'Last refresh failed';
+                        
+                        // Show alert once
+                        if (!window.staleAlertShown) {
+                            showAlert('⚠️ ' + (data.refresh_error || 'Refresh failed'), 'error');
+                            window.staleAlertShown = true;
+                        }
+                    } else if (data.collections_failed > 0) {
+                        // Degraded - some collections failed
+                        healthIndicator.className = 'health-indicator degraded';
+                        const failedCount = data.collections_failed;
+                        healthText.textContent = `${failedCount} ${failedCount === 1 ? 'collection' : 'collections'} failed`;
+                        healthIndicator.title = `${failedCount} collection(s) failed to refresh`;
+                        healthText.title = `${failedCount} collection(s) failed to refresh`;
+                        window.staleAlertShown = false;
+                    } else {
+                        // Healthy
+                        healthIndicator.className = 'health-indicator healthy';
+                        healthText.textContent = 'Healthy';
+                        healthIndicator.title = 'All collections refreshed successfully';
+                        healthText.title = 'All collections refreshed successfully';
+                        window.staleAlertShown = false;
+                    }
+                    
+                    // Update last updated time (always show the actual last update time)
+                    const lastUpdatedEl = document.getElementById('lastUpdated');
+                    lastUpdatedEl.textContent = formatDate(data.last_updated) || 'Never';
+                    lastUpdatedEl.style.color = '';
+                    lastUpdatedEl.title = '';
+                })
+                .catch(error => {
+                    console.error('Error loading status:', error);
+                    showAlert('Error loading status', 'error');
+                });
+        }
+        
+        function loadCollections() {
+            // Fetch both collections and init state
+            Promise.all([
+                fetch('/api/collections').then(r => r.json()),
+                fetch('/api/init-status').then(r => r.json())
+            ])
+            .then(([collectionsData, initState]) => {
+                const container = document.getElementById('collections');
+                container.innerHTML = '';
+                
+                if (collectionsData.collections && collectionsData.collections.length > 0) {
+                    // Filter out disabled collections
+                    const enabledCollections = collectionsData.collections.filter(c => c.enabled !== false);
+                    
+                    // Update active count
+                    document.getElementById('collectionsActive').textContent = enabledCollections.length;
+                    
+                    if (enabledCollections.length > 0) {
+                        enabledCollections.forEach(collection => {
+                            container.appendChild(createCollectionCard(collection, initState));
+                        });
+                    } else {
+                        container.innerHTML = '<p>No enabled collections.</p>';
+                    }
+                } else {
+                    document.getElementById('collectionsActive').textContent = '0';
+                    container.innerHTML = '<p>No collections configured.</p>';
+                }
+            })
+            .catch(error => {
+                console.error('Error loading collections:', error);
+                showAlert('Error loading collections', 'error');
+            });
+        }
+        
+        function createCollectionCard(collection, initState) {
+            const card = document.createElement('div');
+            card.className = 'collection-card';
+            card.id = `collection-${collection.index}`;
+            
+            // Check if this collection is being initialized (only during initial startup)
+            let isProcessing = false;
+            let isPending = false;
+            let initError = '';
+            
+            // Only show init states if we're actually initializing
+            if (initState && initState.status === 'initializing' && initState.collection_states) {
+                const collState = initState.collection_states[collection.index];
+                if (collState) {
+                    isProcessing = collState.status === 'processing';
+                    isPending = collState.status === 'pending';
+                    if (collState.status === 'error') {
+                        initError = collState.error;
+                    }
+                }
+            }
+            
+            // Add processing class if actively being initialized
+            if (isProcessing) {
+                card.className += ' processing';
+            }
+            
+            // Health indicator based on status
+            let healthSymbol = '●';
+            let healthColor = '#a0aec0';
+            let healthText = 'Unknown';
+            let healthTooltip = '';
+            
+            // Initialization states (during startup only)
+            if (isProcessing) {
+                healthSymbol = '⟳';
+                healthColor = '#667eea';
+                healthText = 'Processing...';
+                healthTooltip = 'Currently fetching indicators';
+            } else if (isPending) {
+                healthSymbol = '○';
+                healthColor = '#cbd5e0';
+                healthText = 'Pending';
+                healthTooltip = 'Waiting to be processed';
+            } else if (initError) {
+                healthSymbol = '●';
+                healthColor = '#f56565';
+                healthText = 'Init failed';
+                healthTooltip = initError;
+            } else {
+                // Operational health states (after initialization)
+                // GREEN = Everything is fine, last update worked
+                // AMBER = It worked before, but last update failed
+                // RED = Never worked OR hasn't succeeded in 2+ days
+                
+                const now = new Date();
+                const lastSuccess = collection.last_successful_update ? new Date(collection.last_successful_update) : null;
+                const hoursSinceSuccess = lastSuccess ? (now - lastSuccess) / (1000 * 60 * 60) : null;
+                const twoDaysInHours = 48;
+                
+                if (collection.status === 'success') {
+                    // GREEN: Last update was successful
+                    healthSymbol = '●';
+                    healthColor = '#48bb78';
+                    healthText = 'Healthy';
+                    healthTooltip = 'Collection is working correctly';
+                } else if (collection.ever_successful && hoursSinceSuccess && hoursSinceSuccess < twoDaysInHours) {
+                    // AMBER: Worked before, failed recently, but within 2 days
+                    healthSymbol = '●';
+                    healthColor = '#ed8936';  // Amber/Orange
+                    healthText = 'Warning';
+                    healthTooltip = `Last update failed: ${collection.error || 'Unknown error'}. Last successful: ${formatAge(collection.last_successful_update)}`;
+                } else if (!collection.ever_successful || (hoursSinceSuccess && hoursSinceSuccess >= twoDaysInHours)) {
+                    // RED: Never worked OR hasn't succeeded in 2+ days
+                    healthSymbol = '●';
+                    healthColor = '#f56565';
+                    healthText = 'Critical';
+                    if (!collection.ever_successful) {
+                        healthTooltip = 'Collection has never successfully updated. Check configuration.';
+                    } else {
+                        healthTooltip = `No successful update in over 2 days. Last success: ${formatAge(collection.last_successful_update)}`;
+                    }
+                } else {
+                    // Unknown/Not loaded
+                    healthSymbol = '●';
+                    healthColor = '#a0aec0';
+                    healthText = 'Unknown';
+                    healthTooltip = 'Collection has not been loaded yet';
+                }
+            }
+            
+            card.innerHTML = `
+                <div class="collection-header">
+                    <div class="collection-name">${escapeHtml(collection.name)}</div>
+                </div>
+                
+                <div class="collection-stats">
+                    <div class="stat-item">
+                        <div class="stat-value">${collection.indicator_count || 0}</div>
+                        <div class="stat-label">Indicators</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value" style="color: ${healthColor}; font-size: 1.5em;" title="${escapeHtml(healthTooltip)}">${healthSymbol}</div>
+                        <div class="stat-label" title="${escapeHtml(healthTooltip)}">${healthText}</div>
+                    </div>
+                </div>
+                
+                <div class="collection-time">
+                    <div>Updated: ${formatDate(collection.last_updated) || 'Never'}</div>
+                    <div style="font-size: 0.9em; color: #718096; margin-top: 4px;">
+                        Newest indicator: ${formatAge(collection.newest_indicator)}
+                    </div>
+                </div>
+                
+                <div class="collection-actions">
+                    <button class="btn btn-primary btn-small" onclick="refreshCollection(${collection.index})" ${!collection.enabled ? 'disabled' : ''}>
+                        Refresh
+                    </button>
+                    <a href="/api/collection/${collection.index}/csv" class="btn btn-small" title="Active indicators only">
+                        CSV
+                    </a>
+                    <a href="/api/collection/${collection.index}/full-csv" class="btn btn-small" title="All indicators (active + revoked)">
+                        Full Export
+                    </a>
+                    <a href="/api/edl/collection/${collection.index}" class="btn btn-small" target="_blank">
+                        EDL
+                    </a>
+                </div>
+            `;
+            
+            return card;
+        }
+        
+        let refreshInProgress = false;
+        
+        function refreshAll() {
+            if (refreshInProgress) {
+                showAlert('Refresh already in progress', 'warning');
+                return;
+            }
+            
+            refreshInProgress = true;
+            showLoading(true);
+            showAlert('Starting refresh from TAXII servers...', 'info', true);
+            
+            // Start polling for progress
+            const progressInterval = setInterval(() => {
+                fetch('/api/refresh/progress')
+                    .then(response => response.json())
+                    .then(progress => {
+                        if (progress.in_progress) {
+                            // Build detailed progress message
+                            let msg = progress.stage || 'Processing';
+                            
+                            // Add stage-specific details
+                            if (progress.stage === 'fetching' && progress.current_collection) {
+                                msg = `Fetching: ${progress.current_collection}`;
+                            } else if (progress.stage === 'processing' && progress.current_collection) {
+                                msg = `Processing: ${progress.current_collection}`;
+                            } else if (progress.message) {
+                                msg = progress.message;
+                            }
+                            
+                            // Add collection progress
+                            if (progress.collections_total > 0) {
+                                msg += ` (${progress.collections_done}/${progress.collections_total} collections)`;
+                            }
+                            
+                            // Add percentage if available
+                            if (progress.percent > 0) {
+                                msg += ` - ${progress.percent}%`;
+                            }
+                            
+                            showAlert(msg, 'info', true);  // Persist without auto-hide
+                        }
+                    })
+                    .catch(err => console.error('Error fetching progress:', err));
+            }, 2000); // Poll every 2 seconds for progress updates
+            
+            fetch('/api/refresh', {
+                method: 'POST'
+            })
+            .then(response => {
+                // Stop polling
+                clearInterval(progressInterval);
+                
+                // Handle both success and error responses
+                return response.json().then(data => ({
+                    status: response.status,
+                    data: data
+                }));
+            })
+            .then(({status, data}) => {
+                refreshInProgress = false;
+                showLoading(false);
+                if (data.status === 'success') {
+                    showAlert(`Successfully refreshed! Loaded ${data.indicator_count} indicators.`, 'success');
+                    loadStatus();
+                    loadCollections();
+                    loadStats();
+                } else {
+                    // Show user-friendly error message
+                    const errorMsg = data.message || 'Refresh failed';
+                    showAlert(errorMsg, 'error');
+                    
+                    // Reload to show stale indicator
+                    loadStatus();
+                }
+            })
+            .catch(error => {
+                refreshInProgress = false;
+                clearInterval(progressInterval);
+                showLoading(false);
+                console.error('Error refreshing:', error);
+                showAlert('Network error: Unable to contact server', 'error');
+            });
+        }
+        
+        function refreshCollection(index) {
+            const card = document.getElementById(`collection-${index}`);
+            const refreshBtn = card.querySelector('.btn-primary');
+            
+            // Save original button content
+            const originalText = refreshBtn.textContent;
+            
+            // Change button text and disable
+            refreshBtn.textContent = 'Processing...';
+            refreshBtn.disabled = true;
+            refreshBtn.style.opacity = '0.6';
+            refreshBtn.style.cursor = 'not-allowed';
+            
+            fetch(`/api/collection/${index}/refresh`, {
+                method: 'POST'
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    showAlert(`Collection refreshed! Loaded ${data.indicator_count} indicators.`, 'success');
+                    loadStatus();
+                    loadCollections();
+                    loadStats();
+                } else {
+                    showAlert('Refresh failed: ' + (data.message || 'Unknown error'), 'error');
+                    
+                    // Re-enable button on error
+                    refreshBtn.textContent = originalText;
+                    refreshBtn.disabled = false;
+                    refreshBtn.style.opacity = '1';
+                    refreshBtn.style.cursor = 'pointer';
+                }
+            })
+            .catch(error => {
+                console.error('Error refreshing collection:', error);
+                showAlert('Error refreshing collection: ' + error.message, 'error');
+                
+                // Re-enable button on error
+                refreshBtn.textContent = originalText;
+                refreshBtn.disabled = false;
+                refreshBtn.style.opacity = '1';
+                refreshBtn.style.cursor = 'pointer';
+            });
+        }
+        
+        function showAlert(message, type, persist = false) {
+            const alertBox = document.getElementById('alertBox');
+            
+            // Only update text if already showing same type (prevents flash)
+            const currentType = alertBox.className.match(/alert-(\w+)/)?.[1];
+            if (currentType === type && alertBox.classList.contains('show')) {
+                // Just update text, don't re-trigger animation
+                alertBox.textContent = message;
+                return;
+            }
+            
+            // Otherwise show new alert
+            alertBox.className = `alert alert-${type} show`;
+            alertBox.textContent = message;
+            
+            // Clear any existing timeout
+            if (window.alertTimeout) {
+                clearTimeout(window.alertTimeout);
+            }
+            
+            // Only auto-hide if not persisting
+            if (!persist) {
+                window.alertTimeout = setTimeout(() => {
+                    alertBox.className = 'alert';
+                }, 5000);
+            }
+        }
+        
+        function hideAlert() {
+            const alertBox = document.getElementById('alertBox');
+            alertBox.className = 'alert';
+            if (window.alertTimeout) {
+                clearTimeout(window.alertTimeout);
+            }
+        }
+        
+        function showLoading(show) {
+            const loading = document.getElementById('loading');
+            loading.className = show ? 'loading show' : 'loading';
+        }
+        
+        function formatDate(dateString) {
+            if (!dateString) return 'Never';
+            
+            const date = new Date(dateString);
+            const now = new Date();
+            const diff = now - date;
+            
+            // If less than 1 minute ago
+            if (diff < 60000) {
+                return 'Just now';
+            }
+            // If less than 1 hour ago
+            else if (diff < 3600000) {
+                const minutes = Math.floor(diff / 60000);
+                return `${minutes}m ago`;
+            }
+            // If less than 24 hours ago
+            else if (diff < 86400000) {
+                const hours = Math.floor(diff / 3600000);
+                return `${hours}h ago`;
+            }
+            // Otherwise show date
+            else {
+                return date.toLocaleDateString();
+            }
+        }
+        
+        function formatAge(dateString) {
+            if (!dateString) return 'Unknown';
+            
+            const date = new Date(dateString);
+            const now = new Date();
+            const diffMs = now - date;
+            const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+            
+            if (diffDays === 0) {
+                return 'Today';
+            } else if (diffDays === 1) {
+                return '1 day';
+            } else if (diffDays < 7) {
+                return `${diffDays} days`;
+            } else if (diffDays < 30) {
+                const weeks = Math.floor(diffDays / 7);
+                return weeks === 1 ? '1 week' : `${weeks} weeks`;
+            } else if (diffDays < 365) {
+                const months = Math.floor(diffDays / 30);
+                return months === 1 ? '1 month' : `${months} months`;
+            } else {
+                const years = Math.floor(diffDays / 365);
+                return years === 1 ? '1 year' : `${years} years`;
+            }
+        }
+        
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        
+        function loadAutoRefreshStatus() {
+            fetch('/api/auto-refresh/status')
+                .then(response => response.json())
+                .then(data => {
+                    const statusEl = document.getElementById('autoRefreshStatus');
+                    const toggleBtn = document.getElementById('autoRefreshToggle');
+                    const intervalInput = document.getElementById('autoRefreshInterval');
+                    const nextTimeEl = document.getElementById('nextRefreshTime');
+                    
+                    if (data.enabled) {
+                        statusEl.textContent = 'Enabled';
+                        statusEl.className = 'auto-refresh-value enabled';
+                        toggleBtn.textContent = 'Disable Auto-Refresh';
+                        intervalInput.disabled = true;
+                        intervalInput.style.opacity = '0.6';
+                        
+                        // Convert hours to minutes for display
+                        const minutes = Math.round(data.interval_hours * 60);
+                        intervalInput.value = minutes;
+                        
+                        // Show next refresh time
+                        if (data.next_refresh) {
+                            const nextTime = new Date(data.next_refresh);
+                            const timeStr = nextTime.toLocaleString();
+                            nextTimeEl.textContent = `(Next: ${timeStr})`;
+                        }
+                    } else {
+                        statusEl.textContent = 'Disabled';
+                        statusEl.className = 'auto-refresh-value disabled';
+                        toggleBtn.textContent = 'Enable Auto-Refresh';
+                        intervalInput.disabled = false;
+                        intervalInput.style.opacity = '1';
+                        nextTimeEl.textContent = '';
+                    }
+                })
+                .catch(error => {
+                    console.error('Error loading auto-refresh status:', error);
+                });
+        }
+        
+        function validateInterval(minutes) {
+            // Security: Strict validation to prevent injection
+            // Only allow positive integers
+            const num = parseInt(minutes, 10);
+            
+            // Check if it's a valid number
+            if (isNaN(num) || num !== parseFloat(minutes)) {
+                return { valid: false, error: 'Please enter a valid number' };
+            }
+            
+            // Check if it's positive
+            if (num <= 0) {
+                return { valid: false, error: 'Interval must be greater than 0' };
+            }
+            
+            // Minimum: 15 minutes (prevent server overload)
+            if (num < 15) {
+                return { valid: false, error: 'Minimum interval is 15 minutes' };
+            }
+            
+            // Maximum: 1440 minutes (24 hours)
+            if (num > 1440) {
+                return { valid: false, error: 'Maximum interval is 1440 minutes (24 hours)' };
+            }
+            
+            return { valid: true, minutes: num };
+        }
+        
+        function showIntervalError(message) {
+            const errorEl = document.getElementById('intervalError');
+            errorEl.textContent = message;
+            errorEl.style.display = 'inline';
+            
+            // Clear after 5 seconds
+            setTimeout(() => {
+                errorEl.style.display = 'none';
+            }, 5000);
+        }
+        
+        function toggleAutoRefresh() {
+            fetch('/api/auto-refresh/status')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.enabled) {
+                        // Disable
+                        fetch('/api/auto-refresh/stop', { method: 'POST' })
+                            .then(response => response.json())
+                            .then(result => {
+                                if (result.status === 'success') {
+                                    showAlert('Auto-refresh disabled', 'success');
+                                    loadAutoRefreshStatus();
+                                } else {
+                                    showAlert(result.message || 'Failed to disable auto-refresh', 'error');
+                                }
+                            })
+                            .catch(error => {
+                                console.error('Error disabling auto-refresh:', error);
+                                showAlert('Error disabling auto-refresh', 'error');
+                            });
+                    } else {
+                        // Enable - validate input first
+                        const inputValue = document.getElementById('autoRefreshInterval').value.trim();
+                        const validation = validateInterval(inputValue);
+                        
+                        if (!validation.valid) {
+                            showIntervalError(validation.error);
+                            showAlert(validation.error, 'error');
+                            return;
+                        }
+                        
+                        const minutes = validation.minutes;
+                        const hours = minutes / 60; // Convert to hours for API
+                        
+                        fetch('/api/auto-refresh/start', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ interval_hours: hours })
+                        })
+                            .then(response => response.json())
+                            .then(result => {
+                                if (result.status === 'success') {
+                                    showAlert(`Auto-refresh enabled (every ${minutes} minutes)`, 'success');
+                                    loadAutoRefreshStatus();
+                                } else {
+                                    showAlert(result.message || 'Failed to enable auto-refresh', 'error');
+                                }
+                            })
+                            .catch(error => {
+                                console.error('Error enabling auto-refresh:', error);
+                                showAlert('Error enabling auto-refresh', 'error');
+                            });
+                    }
+                })
+                .catch(error => {
+                    console.error('Error toggling auto-refresh:', error);
+                    showAlert('Error toggling auto-refresh', 'error');
+                });
+        }
+        
+        // Auto-refresh status every 30 seconds
+        setInterval(() => {
+            loadStatus();
+        }, 30000);
+    </script>
+</body>
+</html>

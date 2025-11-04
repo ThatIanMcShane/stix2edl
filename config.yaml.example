@@ -1,0 +1,28 @@
+# TAXII Threat Intelligence Collector Configuration
+# 
+# Configure your TAXII collection endpoints below
+
+# === Authentication (Basic HTTP only) ===
+# Single set of credentials used for all collections
+username: "your_username_here"
+password: "your_password_here"
+
+# === Collections ===
+# List of collection URLs to fetch from
+# All collections use the same authentication credentials above
+collections:
+  - url: "https://example.com/taxii2/collections/your-collection-id/objects/"
+    name: "Example Collection 1"
+    enabled: true
+    
+  - url: "https://example.com/taxii2/collections/another-collection-id/objects/"
+    name: "Example Collection 2"
+    enabled: false
+
+# === Pagination Settings ===
+# Maximum number of pages to fetch per collection
+# Increase this if you have large collections with more than 50 pages of data
+# Each page typically contains ~100 indicators
+max_pages: 50
+
+# Additional configuration options can be added below as needed

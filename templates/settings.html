@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Settings - TAXII Threat Intel</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: #1a202c;
+            color: #e2e8f0;
+            line-height: 1.6;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 0;
+        }
+        
+        header {
+            background: #2d3748;
+            color: white;
+            padding: 15px 20px;
+            margin-bottom: 20px;
+            position: sticky;
+            top: 0;
+            z-index: 1000;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+        }
+        
+        header h1 {
+            font-size: 1.5em;
+            margin: 0;
+        }
+        
+        nav {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        
+        nav {
+            display: flex;
+            gap: 10px;
+        }
+        
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            background: #4a5568;
+            color: white;
+            cursor: pointer;
+            font-size: 1em;
+            border-radius: 6px;
+            text-decoration: none;
+            display: inline-block;
+            transition: background 0.2s;
+        }
+        
+        .btn:hover {
+            background: #718096;
+        }
+        
+        .btn-primary {
+            background: #5a67d8;
+        }
+        
+        .btn-primary:hover {
+            background: #4c51bf;
+        }
+        
+        .btn-small {
+            padding: 6px 12px;
+            font-size: 0.9em;
+        }
+        
+        .alert {
+            padding: 15px;
+            border-radius: 6px;
+            margin-bottom: 20px;
+            display: none;
+        }
+        
+        .alert.show {
+            display: block;
+        }
+        
+        .alert-success {
+            background: #48bb78;
+            color: white;
+        }
+        
+        .alert-error {
+            background: #f56565;
+            color: white;
+        }
+        
+        .alert-info {
+            background: #4299e1;
+            color: white;
+        }
+        
+        .settings-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 20px 40px 20px;
+        }
+        
+        .settings-header {
+            margin-bottom: 2rem;
+        }
+        
+        .settings-section {
+            background: #2d3748;
+            border-radius: 8px;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+        
+        .settings-section h2 {
+            color: #e2e8f0;
+            margin: 0 0 1rem 0;
+            font-size: 1.3rem;
+            border-bottom: 1px solid #4a5568;
+            padding-bottom: 0.5rem;
+        }
+        
+        .form-group {
+            margin-bottom: 1.5rem;
+        }
+        
+        .form-group label {
+            display: block;
+            color: #e2e8f0;
+            margin-bottom: 0.5rem;
+            font-weight: 500;
+        }
+        
+        .form-group input[type="text"],
+        .form-group input[type="number"],
+        .form-group input[type="password"],
+        .form-group textarea {
+            width: 100%;
+            padding: 0.75rem;
+            background: #1a202c;
+            border: 1px solid #4a5568;
+            border-radius: 4px;
+            color: #e2e8f0;
+            font-family: 'Courier New', monospace;
+        }
+        
+        .form-group textarea {
+            min-height: 100px;
+            resize: vertical;
+        }
+        
+        .form-group small {
+            display: block;
+            color: #a0aec0;
+            margin-top: 0.25rem;
+            font-size: 0.875rem;
+        }
+        
+        .form-group input[type="checkbox"] {
+            margin-right: 0.5rem;
+        }
+        
+        .collection-item {
+            background: #1a202c;
+            padding: 1rem;
+            border-radius: 4px;
+            margin-bottom: 1rem;
+            border: 1px solid #4a5568;
+        }
+        
+        .collection-item h3 {
+            color: #e2e8f0;
+            margin: 0 0 1rem 0;
+            font-size: 1.1rem;
+        }
+        
+        .btn-group {
+            display: flex;
+            gap: 1rem;
+            margin-top: 2rem;
+        }
+        
+        .btn-danger {
+            background: #f56565;
+        }
+        
+        .btn-danger:hover {
+            background: #e53e3e;
+        }
+        
+        .btn-secondary {
+            background: #4a5568;
+        }
+        
+        .btn-secondary:hover {
+            background: #718096;
+        }
+        
+        .add-collection-btn {
+            margin-top: 1rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div style="display: flex; align-items: center; gap: 20px; width: 100%;">
+                <h1 style="margin: 0;">⚙️ Settings</h1>
+                <nav style="display: flex; gap: 10px; margin-left: auto; flex-wrap: wrap;">
+                    <button class="btn btn-primary" onclick="saveSettings()">💾 Save Settings</button>
+                    <a href="/" class="btn">← Back to Dashboard</a>
+                </nav>
+            </div>
+        </header>
+        
+        <div class="settings-container">
+            <div id="alertBox" class="alert"></div>
+            
+            <div class="settings-header">
+                <p style="color: #a0aec0;">Configure TAXII server connections and credentials</p>
+            </div>
+            
+            <!-- Global Credentials -->
+            <div class="settings-section">
+                <h2>🔐 Credentials</h2>
+                <div class="form-group">
+                    <label for="globalUsername">Username</label>
+                    <input type="text" id="globalUsername" placeholder="username">
+                    <small>Username for TAXII server authentication</small>
+                </div>
+                <div class="form-group">
+                    <label for="globalPassword">Password</label>
+                    <input type="password" id="globalPassword" placeholder="Leave blank to keep current">
+                    <small>Password for TAXII server authentication</small>
+                </div>
+            </div>
+            
+            <!-- Pagination Settings -->
+            <div class="settings-section">
+                <h2>📄 Pagination Settings</h2>
+                <div class="form-group">
+                    <label for="maxPages">Maximum Pages per Collection</label>
+                    <input type="number" id="maxPages" min="1" max="1000" placeholder="50">
+                    <small>Maximum number of pages to fetch from each collection (default: 50). Increase if you have large collections with more data.</small>
+                </div>
+            </div>
+            
+            <!-- Authentication Settings -->
+            <div class="settings-section">
+                <h2>🔐 Authentication Settings</h2>
+                <div class="form-group">
+                    <label for="loginPassword">Login Password</label>
+                    <input type="password" id="loginPassword" placeholder="Leave blank to keep current">
+                    <small>Password required to access the application. Leave blank to keep the current password.</small>
+                </div>
+                <div class="form-group">
+                    <label for="sessionTimeout">Session Timeout (hours)</label>
+                    <input type="number" id="sessionTimeout" min="1" max="720" placeholder="72">
+                    <small>How long users stay logged in (default: 72 hours = 3 days)</small>
+                </div>
+            </div>
+            
+            <!-- TAXII Collections -->
+            <div class="settings-section">
+                <h2>📡 TAXII Collections</h2>
+                <div id="collectionsContainer"></div>
+                <button class="btn btn-secondary add-collection-btn" onclick="addCollection()">+ Add Collection</button>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        let currentConfig = {};
+        
+        // Utility function - must be defined first
+        function escapeHtml(text) {
+            if (!text) return '';
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        
+        // Load current configuration
+        async function loadSettings() {
+            try {
+                const response = await fetch('/api/config');
+                currentConfig = await response.json();
+                populateForm(currentConfig);
+            } catch (error) {
+                console.error('Error loading settings:', error);
+                showAlert('Error loading settings', 'error');
+            }
+        }
+        
+        function populateForm(config) {
+            // Global credentials
+            const globalUsername = document.getElementById('globalUsername');
+            const globalPassword = document.getElementById('globalPassword');
+            
+            if (globalUsername && globalPassword) {
+                // Try to find credentials in various places for backwards compatibility
+                let username = config.username || config.server?.username || config.auth?.username || '';
+                let password = config.password || config.server?.password || config.auth?.password || '';
+                
+                globalUsername.value = username;
+                globalPassword.value = password || '';
+            }
+            
+            // Max pages setting
+            const maxPages = document.getElementById('maxPages');
+            if (maxPages) {
+                maxPages.value = config.max_pages || 50;
+            }
+            
+            // Authentication settings
+            const sessionTimeout = document.getElementById('sessionTimeout');
+            if (sessionTimeout) {
+                sessionTimeout.value = config.session_timeout || 72;
+            }
+            // Note: loginPassword is intentionally not populated for security
+            
+            // Collections
+            renderCollections(config.collections || []);
+        }
+        
+        function renderCollections(collections) {
+            const container = document.getElementById('collectionsContainer');
+            
+            if (!container) {
+                console.error('collectionsContainer not found!');
+                return;
+            }
+            
+            container.innerHTML = '';
+            
+            if (!collections || collections.length === 0) {
+                container.innerHTML = '<p style="color: #a0aec0;">No collections configured yet. Click "Add Collection" to create one.</p>';
+                return;
+            }
+            
+            collections.forEach((collection, index) => {
+                const escapedName = escapeHtml(collection.name || '');
+                
+                const collectionHtml = `
+                    <div class="collection-item" data-index="${index}">
+                        <h3>Collection ${index + 1}</h3>
+                        <div class="form-group">
+                            <label>Collection Name</label>
+                            <input type="text" class="coll-name" value="${escapedName}" placeholder="My TAXII Feed">
+                        </div>
+                        <div class="form-group">
+                            <label>Collection URL</label>
+                            <input type="text" class="coll-url" value="${escapeHtml(collection.url || '')}" placeholder="https://example.com/taxii2/collections/abc123/objects/">
+                            <small>Full TAXII collection objects endpoint URL</small>
+                        </div>
+                        <div class="form-group">
+                            <label>
+                                <input type="checkbox" class="coll-enabled" ${collection.enabled !== false ? 'checked' : ''}>
+                                Enabled
+                            </label>
+                        </div>
+                        <button class="btn btn-danger btn-small" onclick="removeCollection(${index})">Remove Collection</button>
+                    </div>
+                `;
+                
+                container.insertAdjacentHTML('beforeend', collectionHtml);
+            });
+        }
+        
+        function addCollection() {
+            const collections = getCurrentCollections();
+            collections.push({
+                name: '',
+                url: '',
+                enabled: true
+            });
+            renderCollections(collections);
+        }
+        
+        function removeCollection(index) {
+            if (!confirm('Are you sure you want to remove this collection?')) {
+                return;
+            }
+            const collections = getCurrentCollections();
+            collections.splice(index, 1);
+            renderCollections(collections);
+        }
+        
+        function getCurrentCollections() {
+            const collections = [];
+            document.querySelectorAll('.collection-item').forEach(item => {
+                collections.push({
+                    name: item.querySelector('.coll-name').value,
+                    url: item.querySelector('.coll-url').value,
+                    enabled: item.querySelector('.coll-enabled').checked
+                });
+            });
+            return collections;
+        }
+        
+        async function saveSettings() {
+            // Match the actual config structure with root-level credentials
+            const config = {
+                username: document.getElementById('globalUsername').value,
+                password: document.getElementById('globalPassword').value,
+                collections: getCurrentCollections(),
+                max_pages: parseInt(document.getElementById('maxPages').value) || 50,
+                session_timeout: parseInt(document.getElementById('sessionTimeout').value) || 72
+            };
+            
+            // Add login password only if provided
+            const loginPassword = document.getElementById('loginPassword').value;
+            if (loginPassword) {
+                config.login_password = loginPassword;
+            }
+            
+            try {
+                const response = await fetch('/api/config', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(config)
+                });
+                
+                const result = await response.json();
+                
+                if (result.status === 'success') {
+                    showAlert('Settings saved! Restart the application for changes to take effect.', 'success');
+                } else {
+                    showAlert(result.message || 'Failed to save settings', 'error');
+                }
+            } catch (error) {
+                console.error('Error saving settings:', error);
+                showAlert('Error saving settings', 'error');
+            }
+        }
+        
+        
+        async function resetSettings() {
+            if (!confirm('Are you sure you want to reset all settings to defaults? This cannot be undone.')) {
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/config/reset', {
+                    method: 'POST'
+                });
+                
+                const result = await response.json();
+                
+                if (result.status === 'success') {
+                    showAlert('Settings reset to defaults', 'success');
+                    setTimeout(() => location.reload(), 1000);
+                } else {
+                    showAlert(result.message || 'Failed to reset settings', 'error');
+                }
+            } catch (error) {
+                console.error('Error resetting settings:', error);
+                showAlert('Error resetting settings', 'error');
+            }
+        }
+        
+        function showAlert(message, type) {
+            const alertBox = document.getElementById('alertBox');
+            alertBox.className = `alert alert-${type} show`;
+            alertBox.textContent = message;
+            
+            setTimeout(() => {
+                alertBox.className = 'alert';
+            }, 5000);
+        }
+        
+        // Load settings on page load
+        document.addEventListener('DOMContentLoaded', loadSettings);
+    </script>
+</body>
+</html>
